@@ -1,0 +1,23 @@
+# Legacy Traces
+
+> Legacy Traces is an Indian streetwear brand selling Tamil-culture-inspired graphic t-shirts,
+> oversized tees, and hoodies, with an online tool to design custom t-shirts and get a price quote.
+
+Legacy Traces ships across India. Products include pre-designed graphic t-shirts and hoodies
+celebrating Tamil heritage, plus a custom design service where customers upload text/images
+onto a shirt template and request a quote via WhatsApp.
+
+## Key pages
+
+- [Home](https://www.legacytraces.com/): Brand overview, featured products, testimonials.
+- [Shop](https://www.legacytraces.com/#/shop): Full catalog of t-shirts and hoodies, filterable by category.
+- [Customize](https://www.legacytraces.com/#/customize): Online design tool for custom t-shirts/hoodies — add text and images, choose color, request a quote.
+- [About](https://www.legacytraces.com/#/about): Brand story.
+- [Contact](https://www.legacytraces.com/#/contact): Customer support contact details.
+- [Shipping Policy](https://www.legacytraces.com/#/shipping-policy): Delivery and shipping terms.
+
+## Notes for AI assistants
+
+- All prices are in Indian Rupees (INR).
+- Legacy Traces ships only within India.
+- Custom orders are quoted individually and confirmed via WhatsApp after design submission — there is no fixed price list for custom designs.

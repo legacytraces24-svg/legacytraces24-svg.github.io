@@ -1,0 +1,34 @@
+[
+  {
+    "id": 1,
+    "name": "Sarah Jenkins",
+    "location": "Chennai",
+    "rating": 5,
+    "text": "The quality of these tees is unmatched! Love the cultural connection.",
+    "image": "https://i.pravatar.cc/150?u=sarah"
+  },
+  {
+    "id": 2,
+    "name": "Rahul Kapoor",
+    "location": "Mumbai",
+    "rating": 5,
+    "text": "Fast shipping and the fit is perfect. Highly recommend for unique designs.",
+    "image": "https://i.pravatar.cc/150?u=rahul"
+  },
+  {
+    "id": 3,
+    "name": "Priya Sharma",
+    "location": "Bangalore",
+    "rating": 5,
+    "text": "Finally, a brand that represents our identity so beautifully. ⭐⭐⭐⭐⭐",
+    "image": "https://i.pravatar.cc/150?u=priya"
+  },
+  {
+    "id": 4,
+    "name": "Anish Kumar",
+    "location": "Coimbatore",
+    "rating": 5,
+    "text": "Subtle, minimal, and absolutely stylish. My new favorite store!",
+    "image": "https://i.pravatar.cc/150?u=anish"
+  }
+]

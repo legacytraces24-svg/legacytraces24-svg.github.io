@@ -12,7 +12,7 @@ const Cart = () => {
             <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
                 <ShoppingBag size={64} className="text-gray-300" />
                 <h2 className="text-2xl font-bold text-gray-500">Your cart is empty</h2>
-                <Link to="/shop" className="px-6 py-3 bg-primary text-black font-bold rounded-lg hover:bg-green-400 transition-colors">
+                <Link to="/shop" className="px-6 py-3 bg-primary text-black font-bold rounded-lg hover:brightness-90 transition-all">
                     Start Shopping
                 </Link>
             </div>
@@ -97,7 +97,7 @@ const Cart = () => {
                     <p className="text-xs text-gray-500 mb-6">Shipping and taxes calculated at checkout.</p>
                     <Link
                         to="/checkout"
-                        className="w-full py-4 bg-primary text-black font-bold rounded-xl hover:bg-green-400 transition-colors flex items-center justify-center gap-2 text-center"
+                        className="w-full py-4 bg-primary text-black font-bold rounded-xl hover:brightness-90 transition-all flex items-center justify-center gap-2 text-center"
                     >
                         PROCEED TO CHECKOUT
                     </Link>

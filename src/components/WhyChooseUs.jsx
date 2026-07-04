@@ -30,8 +30,8 @@ const WhyChooseUs = () => {
                 viewport={{ once: true }}
                 className="text-center mb-8 md:mb-10"
             >
-                <h2 className="text-3xl md:text-4xl font-heading font-bold uppercase tracking-tight">
-                    WHY CHOOSE US?
+                <h2 className="text-3xl md:text-5xl font-heading font-black uppercase tracking-tight">
+                    Why Choose <span className="text-primary">Us?</span>
                 </h2>
             </motion.div>
 
@@ -43,9 +43,9 @@ const WhyChooseUs = () => {
                         whileInView={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.5, delay: index * 0.1 }}
                         viewport={{ once: true }}
-                        className="flex flex-col items-center text-center group"
+                        className="flex flex-col items-center text-center group p-6 rounded-2xl border border-transparent hover:border-primary/30 hover:bg-primary/5 transition-colors duration-300"
                     >
-                        <div className="mb-6 p-4 rounded-full bg-primary/5 group-hover:bg-primary/10 transition-colors duration-300">
+                        <div className="mb-6 p-4 rounded-full bg-primary/10 group-hover:bg-primary/20 transition-colors duration-300">
                             {feature.icon}
                         </div>
                         <h3 className="text-xl font-heading font-bold mb-3 uppercase">

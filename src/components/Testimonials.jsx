@@ -47,7 +47,7 @@ const Testimonials = () => {
     return (
         <section className="container mx-auto px-4 mt-10 mb-10 md:mt-14 md:mb-14">
             <div className="text-center mb-8 md:mb-10">
-                <h2 className="text-3xl md:text-4xl font-heading font-bold mb-4">Loved by Our Community</h2>
+                <h2 className="text-3xl md:text-4xl font-heading font-black uppercase tracking-tight mb-4">Loved by Our <span className="text-primary">Community</span></h2>
                 <p className="text-gray-600 dark:text-gray-400 font-sans">Real stories from people who wear our culture.</p>
             </div>
 

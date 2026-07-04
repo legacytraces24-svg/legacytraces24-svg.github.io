@@ -16,8 +16,8 @@ const ProductCarousel = ({ title, products = [] }) => {
     return (
         <section className="container mx-auto px-4 mt-8 md:mt-10">
             <div className="flex justify-between items-end mb-5 md:mb-6">
-                <h2 className="text-2xl md:text-3xl font-heading font-bold">{title}</h2>
-                <Link to="/shop" className="text-primary font-medium hover:underline text-sm md:text-base">View All</Link>
+                <h2 className="text-2xl md:text-3xl font-heading font-black uppercase tracking-tight">{title}</h2>
+                <Link to="/shop" className="text-primary font-bold hover:underline text-sm md:text-base uppercase tracking-wide">View All →</Link>
             </div>
 
             {/* Embla viewport */}

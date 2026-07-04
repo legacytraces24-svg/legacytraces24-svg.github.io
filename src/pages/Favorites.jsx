@@ -13,7 +13,7 @@ const Favorites = () => {
             {favorites.length === 0 ? (
                 <div className="text-center py-20">
                     <p className="text-xl text-gray-500 mb-4">You haven't added any favorites yet.</p>
-                    <Link to="/shop" className="inline-block px-6 py-3 bg-primary text-black font-bold rounded-lg hover:bg-green-400 transition-colors">
+                    <Link to="/shop" className="inline-block px-6 py-3 bg-primary text-black font-bold rounded-lg hover:brightness-90 transition-all">
                         Start Shopping
                     </Link>
                 </div>

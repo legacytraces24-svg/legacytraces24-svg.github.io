@@ -15,6 +15,15 @@ import {
 // Indian 10-digit mobile → wa.me link (backend validates mobile as ^\d{10}$)
 const whatsappLink = (mobile) => `https://wa.me/91${String(mobile || '').replace(/\D/g, '')}`;
 
+// D1 stores timestamps as 'YYYY-MM-DD HH:MM:SS' (UTC, no offset) — append Z so
+// the browser parses it as UTC instead of local time before formatting.
+const formatDate = (ts) => {
+    if (!ts) return null;
+    const d = new Date(ts.includes('T') ? ts : ts.replace(' ', 'T') + 'Z');
+    if (isNaN(d)) return null;
+    return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+};
+
 const ALL_ORDER_STATUSES = ['New', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Pending Payment', 'Payment Failed'];
 
 const CUSTOM_STATUSES = [
@@ -335,6 +344,8 @@ const AdminDashboard = () => {
                                 else if (sortCol === 'amount') { av = Number(a.AmountPaid || 0); bv = Number(b.AmountPaid || 0); }
                                 else if (sortCol === 'name')   { av = (a.Name || '').toLowerCase(); bv = (b.Name || '').toLowerCase(); }
                                 else if (sortCol === 'status') { av = a.OrderStatus || 'New'; bv = b.OrderStatus || 'New'; }
+                                else if (sortCol === 'created') { av = a.CreatedAt || ''; bv = b.CreatedAt || ''; }
+                                else if (sortCol === 'shipped') { av = a.ShippedAt || ''; bv = b.ShippedAt || ''; }
                                 else { av = a.id; bv = b.id; }
                                 if (av === bv) return 0;
                                 return sortDir === 'asc' ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
@@ -464,7 +475,17 @@ const AdminDashboard = () => {
                                                         Status <SortIcon col="status" />
                                                     </button>
                                                 </th>
+                                                <th className="p-4 font-medium">
+                                                    <button onClick={() => toggleSort('created')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100">
+                                                        Created <SortIcon col="created" />
+                                                    </button>
+                                                </th>
                                                 <th className="p-4 font-medium">Shipping Co.</th>
+                                                <th className="p-4 font-medium">
+                                                    <button onClick={() => toggleSort('shipped')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100">
+                                                        Shipped <SortIcon col="shipped" />
+                                                    </button>
+                                                </th>
                                                 <th className="p-4 font-medium">Update Status</th>
                                                 <th className="p-4 font-medium">Details</th>
                                             </tr>
@@ -517,8 +538,14 @@ const AdminDashboard = () => {
                                                                 {status}
                                                             </span>
                                                         </td>
+                                                        <td className="p-4 text-sm whitespace-nowrap">
+                                                            {formatDate(order.CreatedAt) || <span className="text-gray-400">—</span>}
+                                                        </td>
                                                         <td className="p-4 text-sm">
                                                             {order.ShippingCompany || <span className="text-gray-400">—</span>}
+                                                        </td>
+                                                        <td className="p-4 text-sm whitespace-nowrap">
+                                                            {formatDate(order.ShippedAt) || <span className="text-gray-400">—</span>}
                                                         </td>
                                                         <td className="p-4">
                                                             <select
@@ -541,7 +568,7 @@ const AdminDashboard = () => {
                                                     </tr>
                                                     {isOpen && (
                                                         <tr className="bg-gray-50 dark:bg-gray-900/40 border-b border-gray-100 dark:border-gray-700">
-                                                            <td colSpan="8" className="p-5">
+                                                            <td colSpan="10" className="p-5">
                                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                                                                     <div>
                                                                         <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Shipping Address</p>
@@ -573,7 +600,7 @@ const AdminDashboard = () => {
                                                                         <button
                                                                             onClick={() => saveOrderShipping(id)}
                                                                             disabled={savingOrderId === id}
-                                                                            className="self-start px-5 py-2 bg-primary text-black rounded-lg font-bold text-sm hover:bg-green-400 transition-colors disabled:opacity-60"
+                                                                            className="self-start px-5 py-2 bg-primary text-black rounded-lg font-bold text-sm hover:brightness-90 transition-all disabled:opacity-60"
                                                                         >
                                                                             {savingOrderId === id ? 'Saving…' : 'Save Shipping Details'}
                                                                         </button>
@@ -586,7 +613,7 @@ const AdminDashboard = () => {
                                                 );
                                             }) : (
                                                 <tr>
-                                                    <td colSpan="8" className="p-8 text-center text-gray-500">
+                                                    <td colSpan="10" className="p-8 text-center text-gray-500">
                                                         {orders.length === 0 ? 'No orders yet.' : 'No orders match your filters.'}
                                                     </td>
                                                 </tr>
@@ -680,10 +707,26 @@ const AdminDashboard = () => {
                                                     {new Date(order.created_at.replace(' ', 'T') + 'Z').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                                                 </span>
                                             </div>
-                                            <div className="text-sm text-gray-600 dark:text-gray-400">
-                                                <span className="font-semibold">{order.customer_name || 'Unknown'}</span>
-                                                {order.customer_email && (
-                                                    <span className="ml-2 text-gray-400">({order.customer_email})</span>
+                                            <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-400">
+                                                <span>
+                                                    <span className="font-semibold">{order.customer_name || 'Unknown'}</span>
+                                                    {order.customer_email && (
+                                                        <span className="ml-2 text-gray-400">({order.customer_email})</span>
+                                                    )}
+                                                </span>
+                                                {order.customer_phone && (
+                                                    <>
+                                                        <span className="font-mono text-xs">{order.customer_phone}</span>
+                                                        <a
+                                                            href={whatsappLink(order.customer_phone)}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            title="Message on WhatsApp"
+                                                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 font-semibold text-xs hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors"
+                                                        >
+                                                            <MessageCircle size={13} /> WhatsApp
+                                                        </a>
+                                                    </>
                                                 )}
                                             </div>
                                         </div>
@@ -806,7 +849,7 @@ const AdminDashboard = () => {
                                                     <button
                                                         onClick={() => saveCustomQuote(order.id)}
                                                         disabled={savingId === order.id}
-                                                        className="px-5 py-2 bg-primary text-black rounded-lg font-bold text-sm hover:bg-green-400 transition-colors disabled:opacity-60"
+                                                        className="px-5 py-2 bg-primary text-black rounded-lg font-bold text-sm hover:brightness-90 transition-all disabled:opacity-60"
                                                     >
                                                         {savingId === order.id ? 'Saving…' : 'Save'}
                                                     </button>
@@ -817,6 +860,62 @@ const AdminDashboard = () => {
                                                         </span>
                                                     )}
                                                 </div>
+
+                                                {/* Shipping — only once the customer has paid and the custom
+                                                    order became a real order (orders.id === confirmed_order_id) */}
+                                                {order.confirmed_order_id && (() => {
+                                                    const linkedOrder = orders.find(o => o.id === order.confirmed_order_id);
+                                                    const shipEdit = orderEditState[order.confirmed_order_id] || { trackingId: '', shippingCompany: '' };
+                                                    const shipStatus = linkedOrder?.OrderStatus || 'New';
+                                                    return (
+                                                        <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
+                                                            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
+                                                                Shipping — Order #{order.confirmed_order_id}
+                                                            </p>
+                                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                                <div>
+                                                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Order Status</label>
+                                                                    <select
+                                                                        value={shipStatus}
+                                                                        onChange={ev => handleStatusChange(order.confirmed_order_id, ev.target.value)}
+                                                                        className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                                                                    >
+                                                                        {ALL_ORDER_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                                                                    </select>
+                                                                </div>
+                                                                <div>
+                                                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Shipping Company</label>
+                                                                    <input
+                                                                        type="text"
+                                                                        value={shipEdit.shippingCompany}
+                                                                        onChange={ev => handleOrderEdit(order.confirmed_order_id, 'shippingCompany', ev.target.value)}
+                                                                        placeholder="e.g. Delhivery, Blue Dart…"
+                                                                        className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Tracking ID</label>
+                                                                    <div className="flex gap-2">
+                                                                        <input
+                                                                            type="text"
+                                                                            value={shipEdit.trackingId}
+                                                                            onChange={ev => handleOrderEdit(order.confirmed_order_id, 'trackingId', ev.target.value)}
+                                                                            placeholder="Courier tracking number"
+                                                                            className="flex-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                                                                        />
+                                                                        <button
+                                                                            onClick={() => saveOrderShipping(order.confirmed_order_id)}
+                                                                            disabled={savingOrderId === order.confirmed_order_id}
+                                                                            className="px-4 py-2 bg-primary text-black rounded-lg font-bold text-sm hover:brightness-90 transition-all disabled:opacity-60 whitespace-nowrap"
+                                                                        >
+                                                                            {savingOrderId === order.confirmed_order_id ? '…' : 'Save'}
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })()}
                                             </div>
                                         </div>
                                     </div>

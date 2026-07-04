@@ -3,7 +3,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-    --color-primary: #00e676;
+    --color-primary: #65A30D;
     --font-sans: 'Inter', sans-serif;
     --font-heading: 'Outfit', sans-serif;
 }

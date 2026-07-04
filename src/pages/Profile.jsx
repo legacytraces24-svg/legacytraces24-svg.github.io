@@ -228,7 +228,7 @@ const Profile = () => {
         <div className="container mx-auto px-4 py-12 max-w-3xl min-h-[70vh]">
             <div className="flex justify-between items-start mb-8">
                 <div>
-                    <h1 className="text-4xl font-bold font-heading bg-clip-text text-transparent bg-gradient-to-r from-primary to-green-600 mb-2">My Profile</h1>
+                    <h1 className="text-4xl font-bold font-heading bg-clip-text text-transparent bg-gradient-to-r from-primary to-cyan-500 mb-2">My Profile</h1>
                     <p className="text-gray-500 dark:text-gray-400">Manage your account details and shipping addresses.</p>
                 </div>
                 <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2">
@@ -252,7 +252,7 @@ const Profile = () => {
             {/* ── Account Info Card ─────────────────────────────────────────── */}
             <div className="bg-white dark:bg-[#1e1e1e] rounded-3xl p-6 md:p-10 shadow-sm border border-gray-100 dark:border-gray-800 relative overflow-hidden mb-6">
                 <div className="flex flex-col sm:flex-row items-center gap-6 mb-10 pb-10 border-b border-gray-100 dark:border-gray-800">
-                    <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary to-green-400 text-black flex items-center justify-center text-4xl font-bold shadow-lg">
+                    <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary to-cyan-400 text-black flex items-center justify-center text-4xl font-bold shadow-lg">
                         {user.name.charAt(0).toUpperCase()}
                     </div>
                     <div className="text-center sm:text-left">
@@ -332,7 +332,7 @@ const Profile = () => {
                         <button
                             type="submit"
                             disabled={isSaving}
-                            className="bg-primary text-black font-bold py-3 px-8 rounded-xl hover:bg-green-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 min-w-[140px] justify-center shadow-lg shadow-primary/20"
+                            className="bg-primary text-black font-bold py-3 px-8 rounded-xl hover:brightness-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 min-w-[140px] justify-center shadow-lg shadow-primary/20"
                         >
                             {isSaving ? <><Loader2 size={18} className="animate-spin" /> Saving...</> : 'Save Profile'}
                         </button>
@@ -440,7 +440,7 @@ const Profile = () => {
                                     <button
                                         type="submit"
                                         disabled={addrSaving}
-                                        className="px-5 py-2.5 rounded-xl text-sm font-bold bg-primary text-black hover:bg-green-400 transition-colors disabled:opacity-50 flex items-center gap-2"
+                                        className="px-5 py-2.5 rounded-xl text-sm font-bold bg-primary text-black hover:brightness-90 transition-all disabled:opacity-50 flex items-center gap-2"
                                     >
                                         {addrSaving ? <><Loader2 size={14} className="animate-spin" /> Saving…</> : 'Save Address'}
                                     </button>

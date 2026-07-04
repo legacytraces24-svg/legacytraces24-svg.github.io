@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { fetchProductById, fetchProducts, getImageUrl } from '../api/api';
-import { ShoppingCart, Heart, Share2, Truck, Plus, Minus } from 'lucide-react';
+import { fetchProductById, fetchProducts, fetchAvailableCoupons, getImageUrl } from '../api/api';
+import { ShoppingCart, Heart, Share2, Truck, Plus, Minus, Tag } from 'lucide-react';
 import { useFavorites } from '../context/FavoritesContext';
 import { useCart } from '../context/CartContext';
+import { useUser } from '../context/UserContext';
 import SizeChartDrawer from '../components/SizeChartDrawer';
 import ProductCard from '../components/ProductCard';
 import SEO from '../components/SEO';
@@ -24,8 +25,11 @@ const ProductDetails = () => {
     const [pincode, setPincode] = useState('');
     const [pincodeStatus, setPincodeStatus] = useState(null); // 'success', 'error', 'failure'
     const [showCartToast, setShowCartToast] = useState(false);
+    const [loadError, setLoadError] = useState(false);
+    const [offers, setOffers] = useState([]);
     const { isFavorite, toggleFavorite } = useFavorites();
     const { addToCart } = useCart();
+    const { user } = useUser();
 
     const decreaseQty = () => setQuantity(q => Math.max(1, q - 1));
     const increaseQty = () => setQuantity(q => Math.min(10, q + 1));
@@ -57,6 +61,7 @@ const ProductDetails = () => {
 
     useEffect(() => {
         setLoading(true);
+        setLoadError(false);
         // Extract ID if it's in the slug--ID format
         const productId = id.includes('--') ? id.split('--').pop() : id;
 
@@ -64,19 +69,47 @@ const ProductDetails = () => {
             setProduct(data);
             if (data) {
                 setCurrentImageIndex(0);
-                // Fetch related products
+                // Fetch related products — best-effort, never blocks the page
                 fetchProducts().then((allProducts) => {
                     const related = allProducts.filter(p =>
                         p.ID !== data.ID && (p.Type === data.Type || p.Collection === data.Collection)
                     ).slice(0, 4);
                     setRelatedProducts(related);
-                });
+                }).catch(() => {});
             }
             setLoading(false);
+        }).catch(() => {
+            setLoadError(true);
+            setLoading(false);
         });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
+    // Promote any offers this product is currently eligible for — logged-in
+    // users only, since eligibility depends on verified New/Existing customer
+    // type. Re-runs if the user logs in/out after the product has loaded, so
+    // the promo appears without needing a reload. Best-effort teaser only —
+    // checkout re-validates for real.
+    useEffect(() => {
+        if (!product || !user?.idToken) { setOffers([]); return; }
+        let cancelled = false;
+        fetchAvailableCoupons(user.idToken, product.Price)
+            .then(res => { if (!cancelled) setOffers(res?.success ? res.coupons : []); })
+            .catch(() => { if (!cancelled) setOffers([]); });
+        return () => { cancelled = true; };
+    }, [product, user?.idToken]);
+
     if (loading) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+    if (loadError) {
+        return (
+            <div className="min-h-screen flex flex-col items-center justify-center gap-4 text-center px-4">
+                <p className="text-gray-500 dark:text-gray-400">Couldn't load this product. Please check your connection and try again.</p>
+                <button onClick={() => window.location.reload()} className="bg-primary text-black font-bold px-6 py-2.5 rounded-lg hover:brightness-90 transition-all">
+                    Retry
+                </button>
+            </div>
+        );
+    }
     if (!product) return <div className="min-h-screen flex items-center justify-center">Product not found</div>;
 
     const favorite = isFavorite(product.ID);
@@ -163,7 +196,6 @@ const ProductDetails = () => {
 
                 {/* Info */}
                 <div className="lg:pl-8">
-                    <div className="text-xs text-gray-500 mb-1 uppercase tracking-wider">{product.Type}</div>
                     <div className="flex justify-between items-start mb-2 md:mb-4">
                         <h1 className="text-2xl md:text-4xl font-heading font-bold">{product.Name}</h1>
                         <div className="relative">
@@ -181,9 +213,26 @@ const ProductDetails = () => {
                             />
                         </div>
                     </div>
-                    <div className="flex items-end gap-4 mb-3 md:mb-6">
+                    <div className="flex items-end gap-3 mb-3 md:mb-6">
                         <span className="text-2xl md:text-3xl font-bold text-primary">₹{product.Price}</span>
+                        {product.MaxPrice > product.Price && (
+                            <span className="text-base md:text-lg text-gray-400 line-through mb-0.5 md:mb-1">₹{product.MaxPrice}</span>
+                        )}
                     </div>
+
+                    {offers.length > 0 && (
+                        <div className="mb-4 md:mb-6 bg-primary/5 border border-dashed border-primary/40 rounded-2xl p-3 md:p-4 space-y-1.5">
+                            <p className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                                <Tag size={13} /> Offers available at checkout
+                            </p>
+                            {offers.map(o => (
+                                <p key={o.code} className="text-xs md:text-sm text-gray-600 dark:text-gray-300">
+                                    Use code <span className="font-bold text-black dark:text-white">{o.code}</span> for {o.percentage}% off
+                                    {o.minOrderValue > 0 ? ` on orders above ₹${o.minOrderValue}` : ''}
+                                </p>
+                            ))}
+                        </div>
+                    )}
 
                     <p className="text-gray-600 dark:text-gray-300 mb-4 md:mb-8 leading-relaxed whitespace-pre-line text-sm md:text-base">
                         {product.Description || product['Short description']}
@@ -257,7 +306,7 @@ const ProductDetails = () => {
                                     }
                                 }}
                                 className={`flex-1 font-bold py-3 md:py-4 rounded-xl flex items-center justify-center gap-2 transition-all text-sm md:text-base ${selectedSize
-                                    ? 'bg-primary text-black hover:bg-green-400'
+                                    ? 'bg-primary text-black hover:brightness-90'
                                     : 'bg-gray-200 dark:bg-gray-800 text-gray-400 cursor-not-allowed opacity-50'
                                     }`}
                             >

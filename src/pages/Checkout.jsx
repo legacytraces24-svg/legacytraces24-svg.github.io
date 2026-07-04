@@ -7,7 +7,7 @@ import { GoogleLogin } from '@react-oauth/google';
 import { jwtDecode } from 'jwt-decode';
 import {
     saveCustomer, updateCustomer, saveOrder,
-    fetchUserDetails, addAddress, initPayment, initCodPayment, checkPaymentStatus, validateCoupon,
+    fetchUserDetails, addAddress, initPayment, initCodPayment, checkPaymentStatus, validateCoupon, fetchAvailableCoupons,
 } from '../api/api';
 
 const COD_ADVANCE_AMOUNT = 100;
@@ -39,9 +39,10 @@ const Checkout = () => {
 
     // ── Coupon state ──────────────────────────────────────────────────────────
     const [couponInput,    setCouponInput]    = useState('');
-    const [appliedCoupon,  setAppliedCoupon]  = useState(null); // {code, percentage}
+    const [appliedCoupon,  setAppliedCoupon]  = useState(null); // {code, percentage, discountAmount, maxDiscount}
     const [couponError,    setCouponError]    = useState('');
     const [couponApplying, setCouponApplying] = useState(false);
+    const [availableCoupons, setAvailableCoupons] = useState([]);
 
     // Address picker state
     const [savedAddresses, setSavedAddresses]   = useState([]);
@@ -131,7 +132,9 @@ const Checkout = () => {
     const isFreeDelivery   = isPincodeValid && deliveryCharge === 0 && deliveryDetails.message?.includes('Free');
     const isCodAvailable   = isPincodeValid && deliveryDetails.isCod;
     const subtotal         = getCartTotal();
-    const couponDiscount   = appliedCoupon ? Math.round(subtotal * appliedCoupon.percentage / 100 * 100) / 100 : 0;
+    // Server is the source of truth for the discount amount (it applies the Max_Discount
+    // cap) — the client never recomputes the raw percentage itself.
+    const couponDiscount   = appliedCoupon?.discountAmount || 0;
     const finalTotal       = subtotal + deliveryCharge - couponDiscount;
 
     // ── Handlers ──────────────────────────────────────────────────────────────
@@ -142,17 +145,25 @@ const Checkout = () => {
         if (errors[name]) setErrors(prev => ({ ...prev, [name]: '' }));
     };
 
-    const handleApplyCoupon = async () => {
-        if (!couponInput.trim()) return;
+    // codeOverride lets a coupon chip apply itself directly (rather than going
+    // through setCouponInput, which wouldn't be visible yet on this render pass).
+    const handleApplyCoupon = async (codeOverride) => {
+        const code = (codeOverride ?? couponInput).trim();
+        if (!code) return;
         setCouponApplying(true);
         setCouponError('');
         try {
-            const res = await validateCoupon(couponInput.trim().toUpperCase());
+            const res = await validateCoupon(code.toUpperCase(), user?.idToken, subtotal);
             if (!res?.success) {
                 setCouponError(res?.error || 'Invalid coupon code');
                 setAppliedCoupon(null);
             } else {
-                setAppliedCoupon({ code: res.code, percentage: res.percentage });
+                setAppliedCoupon({
+                    code:           res.code,
+                    percentage:     res.percentage,
+                    discountAmount: res.discountAmount,
+                    maxDiscount:    res.maxDiscount,
+                });
                 setCouponError('');
             }
         } catch {
@@ -161,6 +172,17 @@ const Checkout = () => {
             setCouponApplying(false);
         }
     };
+
+    // Fetch coupons the customer is currently eligible for once they reach the
+    // summary step — powers the clickable chips. Server re-validates on click
+    // (and again at order time) so this list is only ever a convenience.
+    useEffect(() => {
+        if (step !== 3) return;
+        fetchAvailableCoupons(user?.idToken, subtotal)
+            .then(res => setAvailableCoupons(res?.success ? res.coupons : []))
+            .catch(() => setAvailableCoupons([]));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [step]);
 
     const handleRemoveCoupon = () => {
         setAppliedCoupon(null);
@@ -428,7 +450,7 @@ const Checkout = () => {
 
     return (
         <div className="container mx-auto px-4 py-8 mb-20 max-w-2xl min-h-[70vh]">
-            <h1 className="text-3xl font-heading font-bold mb-8 text-center bg-clip-text text-transparent bg-gradient-to-r from-primary to-green-600">
+            <h1 className="text-3xl font-heading font-bold mb-8 text-center bg-clip-text text-transparent bg-gradient-to-r from-primary to-cyan-500">
                 Secure Checkout
             </h1>
 
@@ -708,7 +730,7 @@ const Checkout = () => {
                                 <button
                                     type="submit"
                                     disabled={isSavingDetails}
-                                    className="w-full py-4 bg-primary text-black font-bold rounded-xl hover:bg-green-400 transition-colors flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="w-full py-4 bg-primary text-black font-bold rounded-xl hover:brightness-90 transition-all flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {isSavingDetails ? (
                                         <>
@@ -747,35 +769,69 @@ const Checkout = () => {
                                     <Tag size={14} /> Coupon Code
                                 </h3>
                                 {appliedCoupon ? (
-                                    <div className="flex items-center justify-between bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl px-4 py-3">
+                                    <motion.div
+                                        initial={{ opacity: 0, y: -6 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        className="flex items-center justify-between bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl px-4 py-3"
+                                    >
                                         <div>
-                                            <p className="text-sm font-bold text-green-700 dark:text-green-400">{appliedCoupon.code} applied!</p>
-                                            <p className="text-xs text-green-600 dark:text-green-500">{appliedCoupon.percentage}% off → saving ₹{couponDiscount.toFixed(2)}</p>
+                                            <p className="text-sm font-bold text-green-700 dark:text-green-400">🎉 Coupon applied successfully!</p>
+                                            <p className="text-xs text-green-600 dark:text-green-500">{appliedCoupon.code} ({appliedCoupon.percentage}% off) → you saved ₹{couponDiscount.toFixed(2)}</p>
                                         </div>
                                         <button onClick={handleRemoveCoupon} className="p-1.5 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/40 text-green-700 dark:text-green-400 transition-colors">
                                             <X size={16} />
                                         </button>
-                                    </div>
+                                    </motion.div>
                                 ) : (
-                                    <div className="flex gap-2">
-                                        <input
-                                            type="text"
-                                            value={couponInput}
-                                            onChange={e => { setCouponInput(e.target.value.toUpperCase()); setCouponError(''); }}
-                                            onKeyDown={e => e.key === 'Enter' && handleApplyCoupon()}
-                                            placeholder="Enter coupon code"
-                                            className="flex-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 uppercase placeholder:normal-case"
-                                        />
-                                        <button
-                                            onClick={handleApplyCoupon}
-                                            disabled={!couponInput.trim() || couponApplying}
-                                            className="px-4 py-2.5 bg-primary text-black font-bold rounded-xl text-sm hover:bg-green-400 transition-colors disabled:opacity-50"
-                                        >
-                                            {couponApplying ? '...' : 'Apply'}
-                                        </button>
-                                    </div>
+                                    <>
+                                        {availableCoupons.length > 0 && (
+                                            <div className="flex flex-wrap gap-2 mb-3">
+                                                {availableCoupons.map(c => (
+                                                    <button
+                                                        key={c.code}
+                                                        type="button"
+                                                        onClick={() => handleApplyCoupon(c.code)}
+                                                        disabled={couponApplying}
+                                                        className="text-left px-3 py-2 rounded-xl border border-dashed border-primary/50 bg-primary/5 hover:bg-primary/10 transition-colors disabled:opacity-50"
+                                                    >
+                                                        <span className="block text-xs font-bold text-primary">{c.code} · {c.percentage}% OFF</span>
+                                                        <span className="block text-[11px] text-gray-500 dark:text-gray-400">Save ₹{c.discountAmount.toFixed(2)} · tap to apply</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                value={couponInput}
+                                                onChange={e => { setCouponInput(e.target.value.toUpperCase()); setCouponError(''); }}
+                                                onKeyDown={e => e.key === 'Enter' && handleApplyCoupon()}
+                                                placeholder="Enter coupon code"
+                                                className="flex-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 uppercase placeholder:normal-case"
+                                            />
+                                            <button
+                                                onClick={() => handleApplyCoupon()}
+                                                disabled={!couponInput.trim() || couponApplying}
+                                                className="px-4 py-2.5 bg-primary text-black font-bold rounded-xl text-sm hover:brightness-90 transition-all disabled:opacity-50"
+                                            >
+                                                {couponApplying ? '...' : 'Apply'}
+                                            </button>
+                                        </div>
+                                    </>
                                 )}
-                                {couponError && <p className="text-red-500 text-xs mt-2">{couponError}</p>}
+                                <AnimatePresence mode="wait">
+                                    {couponError && (
+                                        <motion.p
+                                            key="coupon-error"
+                                            initial={{ opacity: 0, y: -4 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            exit={{ opacity: 0 }}
+                                            className="text-red-500 text-xs mt-2"
+                                        >
+                                            ⚠️ {couponError}
+                                        </motion.p>
+                                    )}
+                                </AnimatePresence>
                             </div>
 
                             {/* Products */}
@@ -868,7 +924,7 @@ const Checkout = () => {
                                 <button
                                     onClick={handlePayNow}
                                     disabled={isPayingOnline || isPlacingOrder || isPayingCod || !user?.idToken}
-                                    className="flex-1 py-4 bg-primary text-black font-bold rounded-xl hover:bg-green-400 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="flex-1 py-4 bg-primary text-black font-bold rounded-xl hover:brightness-90 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {isPayingOnline ? (
                                         <>

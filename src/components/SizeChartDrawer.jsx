@@ -8,22 +8,18 @@ const SizeChartDrawer = ({ isOpen, onClose, productType }) => {
 
     const chartData = {
         inches: [
-            { size: 'XS', chest: '36', shoulder: '16.25', length: '26' },
             { size: 'S', chest: '38', shoulder: '16.75', length: '27' },
             { size: 'M', chest: '40', shoulder: '17.25', length: '28' },
             { size: 'L', chest: '42', shoulder: '17.75', length: '29' },
             { size: 'XL', chest: '45', shoulder: '18.75', length: '30' },
             { size: 'XXL', chest: '47', shoulder: '19.25', length: '30.5' },
-            { size: 'XXXL', chest: '49', shoulder: '19.75', length: '30.5' },
         ],
         cm: [
-            { size: 'XS', chest: '91.4', shoulder: '41', length: '66' },
             { size: 'S', chest: '96', shoulder: '42', length: '69' },
             { size: 'M', chest: '101', shoulder: '43', length: '71' },
             { size: 'L', chest: '106', shoulder: '44', length: '74' },
             { size: 'XL', chest: '114', shoulder: '48', length: '76' },
             { size: 'XXL', chest: '119', shoulder: '49', length: '77' },
-            { size: 'XXXL', chest: '124', shoulder: '50', length: '77' },
         ]
     };
 

@@ -38,6 +38,18 @@ export const fetchProducts    = async () => (await fetchAllData()).product    ||
 export const fetchCollections = async () => (await fetchAllData()).collection || [];
 export const fetchCategories  = async () => (await fetchAllData()).category   || [];
 
+// Active store/branch locations, sorted by Display_Order. Cached per session
+// so revisiting the homepage doesn't re-fetch.
+let cachedBranches = null;
+
+export const fetchBranches = async () => {
+    if (cachedBranches) return cachedBranches;
+    const res  = await fetch(`${API_URL}?type=branches`);
+    const data = await res.json();
+    cachedBranches = data.branches || [];
+    return cachedBranches;
+};
+
 export const fetchProductById = async (id) => {
     const products = await fetchProducts();
     return products.find(p => p.ID === id);
@@ -165,9 +177,17 @@ export const checkPaymentStatus = ({ idToken, orderId }) =>
 
 // ── Coupons ────────────────────────────────────────────────────────────────────
 
-// Validate a coupon code. Returns {success, code, percentage} or {error}.
-export const validateCoupon = (code) =>
-    post('validateCoupon', { code });
+// Validate a coupon code against the cart subtotal. idToken is optional — only
+// needed to resolve New/Existing customer type for user-type-restricted coupons.
+// Returns {success, code, percentage, discountAmount, maxDiscount, minOrderValue} or {error}.
+export const validateCoupon = (code, idToken, cartTotal) =>
+    post('validateCoupon', { code, idToken, cartTotal });
+
+// List active coupons the current cart/customer is eligible for (already-used,
+// wrong user-type, and below-minimum coupons are filtered out server-side).
+// Returns {success, coupons: [{code, percentage, minOrderValue, maxDiscount, discountAmount}]}.
+export const fetchAvailableCoupons = (idToken, cartTotal) =>
+    post('availableCoupons', { idToken, cartTotal });
 
 // ── Custom Orders ─────────────────────────────────────────────────────────────
 
@@ -189,4 +209,10 @@ export const updateCustomQuote = ({ idToken, customOrderId, quotedPrice, status 
 // User confirms a quoted custom order (creates a COD order).
 export const confirmCustomOrder = ({ idToken, customOrderId, name, mobile, address }) =>
     post('confirmCustomOrder', { idToken, customOrderId, name, mobile, address });
+
+// User accepts a quoted custom order and pays for it online via Cashfree.
+// Amount is always the admin's quoted_price — never client-supplied.
+// Returns {success, payment_session_id, order_id, amount} or {error}.
+export const initCustomOrderPayment = ({ idToken, customOrderId, name, mobile, address, pincode }) =>
+    post('initCustomOrderPayment', { idToken, customOrderId, name, mobile, address, pincode });
 

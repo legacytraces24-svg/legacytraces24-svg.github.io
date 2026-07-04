@@ -24,32 +24,33 @@ const Header = () => {
                             <Menu size={24} />
                         </button>
                         {/* Logo */}
-                        <Link to="/" className="text-xl sm:text-2xl font-bold font-heading tracking-wider whitespace-nowrap">
+                        <Link to="/" className="flex items-center gap-1.5 text-xl sm:text-2xl font-bold font-heading tracking-tight whitespace-nowrap">
+                            <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-sm bg-primary shrink-0" />
                             LEGACY TRACES
                         </Link>
                     </div>
 
                     {/* Desktop Nav - ServiceNow Portal Taxonomy style */}
-                    <nav className="hidden md:flex gap-8 items-center font-medium ">
-                        <Link to="/" className="hover:text-primary transition-colors">Home</Link>
-                        
-                        {/* Dropdown for Shop / Products Taxonomy */}
+                    <nav className="hidden md:flex gap-7 items-center font-heading font-semibold text-sm uppercase tracking-wide">
+                        <Link to="/" className="relative py-2 hover:text-primary transition-colors after:absolute after:left-0 after:-bottom-0.5 after:h-0.5 after:w-0 after:bg-primary after:transition-all hover:after:w-full">Home</Link>
+
+                        {/* Dropdown for Product Taxonomy */}
                         <div className="relative group py-2">
                             <Link to="/shop" className="hover:text-primary transition-colors flex items-center gap-1">
-                                Shop
+                                Products
                                 <ChevronDown size={16} />
                             </Link>
-                            <div className="absolute top-full left-0 mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-[1001] overflow-hidden">
+                            <div className="absolute top-full left-0 mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-[1001] overflow-hidden normal-case tracking-normal font-medium">
                                 <Link to="/shop" className="block px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-primary transition-colors">All Products</Link>
                                 <Link to="/shop?category=Oversized" className="block px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-primary transition-colors">T-Shirts</Link>
                                 <Link to="/shop?category=Hoodie" className="block px-4 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-primary transition-colors">Hoodies</Link>
                             </div>
                         </div>
 
-                        <Link to="/customize" className="hover:text-primary transition-colors">Customize</Link>
-                        <Link to="/orders" className="hover:text-primary transition-colors">My Orders</Link>
-                        <Link to="/about" className="hover:text-primary transition-colors">Our Story</Link>
-                        <Link to="/contact" className="hover:text-primary transition-colors">Contact</Link>
+                        <Link to="/customize" className="relative py-2 hover:text-primary transition-colors after:absolute after:left-0 after:-bottom-0.5 after:h-0.5 after:w-0 after:bg-primary after:transition-all hover:after:w-full">Customize</Link>
+                        <Link to="/orders" className="relative py-2 hover:text-primary transition-colors after:absolute after:left-0 after:-bottom-0.5 after:h-0.5 after:w-0 after:bg-primary after:transition-all hover:after:w-full">My Orders</Link>
+                        <Link to="/contact" className="relative py-2 hover:text-primary transition-colors after:absolute after:left-0 after:-bottom-0.5 after:h-0.5 after:w-0 after:bg-primary after:transition-all hover:after:w-full">Contact</Link>
+                        <Link to="/about" className="relative py-2 hover:text-primary transition-colors after:absolute after:left-0 after:-bottom-0.5 after:h-0.5 after:w-0 after:bg-primary after:transition-all hover:after:w-full">Our Story</Link>
                     </nav>
 
                     {/* Actions on Right */}
@@ -88,7 +89,7 @@ const Header = () => {
                                 </Link>
                             </>
                         ) : (
-                            <Link to="/profile" className="hidden md:flex items-center justify-center px-4 py-1.5 text-sm font-bold bg-primary text-black rounded-full hover:bg-green-400 transition-colors">
+                            <Link to="/profile" className="hidden md:flex items-center justify-center px-4 py-1.5 text-sm font-bold bg-primary text-black rounded-full hover:brightness-90 transition-all">
                                 Login
                             </Link>
                         )}
@@ -97,11 +98,12 @@ const Header = () => {
 
                 {/* ServiceNow Portal Mobile Taxonomy Navigation */}
                 <div className="md:hidden border-t border-gray-150 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50 flex gap-2 overflow-x-auto py-2 px-3 scrollbar-none">
-                    <Link to="/shop" className="text-[11px] font-semibold whitespace-nowrap bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 px-3 py-1.5 rounded-full hover:text-primary">Shop All</Link>
+                    <Link to="/shop" className="text-[11px] font-semibold whitespace-nowrap bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 px-3 py-1.5 rounded-full hover:text-primary">All Products</Link>
                     <Link to="/shop?category=Oversized" className="text-[11px] font-semibold whitespace-nowrap bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 px-3 py-1.5 rounded-full hover:text-primary">T-Shirts</Link>
                     <Link to="/shop?category=Hoodie" className="text-[11px] font-semibold whitespace-nowrap bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 px-3 py-1.5 rounded-full hover:text-primary">Hoodies</Link>
                     <Link to="/customize" className="text-[11px] font-semibold whitespace-nowrap bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 px-3 py-1.5 rounded-full hover:text-primary">Customize</Link>
                     <Link to="/orders" className="text-[11px] font-semibold whitespace-nowrap bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 px-3 py-1.5 rounded-full hover:text-primary">My Orders</Link>
+                    <Link to="/contact" className="text-[11px] font-semibold whitespace-nowrap bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 px-3 py-1.5 rounded-full hover:text-primary">Contact</Link>
                     <Link to="/about" className="text-[11px] font-semibold whitespace-nowrap bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 px-3 py-1.5 rounded-full hover:text-primary">Our Story</Link>
                 </div>
 
@@ -125,11 +127,11 @@ const Header = () => {
                     </div>
                     <nav className="flex flex-col p-6 gap-6 font-medium overflow-y-auto flex-1">
                         <Link to="/" onClick={() => setIsMenuOpen(false)} className="block text-xl text-black dark:text-white hover:text-primary transition-colors">Home</Link>
-                        <Link to="/shop" onClick={() => setIsMenuOpen(false)} className="block text-xl text-black dark:text-white hover:text-primary transition-colors">Shop</Link>
+                        <Link to="/shop" onClick={() => setIsMenuOpen(false)} className="block text-xl text-black dark:text-white hover:text-primary transition-colors">Products</Link>
                         <Link to="/customize" onClick={() => setIsMenuOpen(false)} className="block text-xl text-black dark:text-white hover:text-primary transition-colors">Customize</Link>
                         <Link to="/orders" onClick={() => setIsMenuOpen(false)} className="block text-xl text-black dark:text-white hover:text-primary transition-colors">My Orders</Link>
-                        <Link to="/about" onClick={() => setIsMenuOpen(false)} className="block text-xl text-black dark:text-white hover:text-primary transition-colors">Our Story</Link>
                         <Link to="/contact" onClick={() => setIsMenuOpen(false)} className="block text-xl text-black dark:text-white hover:text-primary transition-colors">Contact</Link>
+                        <Link to="/about" onClick={() => setIsMenuOpen(false)} className="block text-xl text-black dark:text-white hover:text-primary transition-colors">Our Story</Link>
                         {!user && (
                             <Link to="/profile" onClick={() => setIsMenuOpen(false)} className="block text-xl text-primary font-bold transition-colors mt-4">Login / Register</Link>
                         )}

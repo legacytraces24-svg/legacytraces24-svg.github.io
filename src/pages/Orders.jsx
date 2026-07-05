@@ -30,7 +30,7 @@ const customStatusConfig = {
     'Cancelled':     { color: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',             icon: <AlertCircle size={12} /> },
 };
 
-const CustomOrderCard = ({ order, onViewDetails }) => {
+const CustomOrderCard = ({ order, onClick }) => {
     const cfg = customStatusConfig[order.status] || customStatusConfig['Pending Quote'];
     const canAccept = order.status === 'Quoted' && order.quoted_price;
 
@@ -38,7 +38,9 @@ const CustomOrderCard = ({ order, onViewDetails }) => {
         <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-white dark:bg-[#1e1e1e] border border-gray-100 dark:border-gray-800 rounded-2xl p-5"
+            whileHover={{ y: -2, boxShadow: '0 8px 30px rgba(0,0,0,0.08)' }}
+            onClick={onClick}
+            className="bg-white dark:bg-[#1e1e1e] border border-gray-100 dark:border-gray-800 rounded-2xl p-5 cursor-pointer transition-shadow"
         >
             <div className="flex items-start justify-between gap-3 mb-2">
                 <div className="flex items-center gap-2 flex-wrap min-w-0">
@@ -61,23 +63,159 @@ const CustomOrderCard = ({ order, onViewDetails }) => {
                 <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Quote ready — accept below to checkout and pay.</p>
             )}
             {order.confirmed_order_id && (
-                <button
-                    onClick={onViewDetails}
-                    className="text-xs text-green-600 dark:text-green-400 font-semibold mt-1 flex items-center gap-1 hover:underline"
-                >
+                <p className="text-xs text-green-600 dark:text-green-400 font-semibold mt-1 flex items-center gap-1">
                     Confirmed → Order LT-{order.confirmed_order_id} · View shipping status <ChevronRight size={12} />
-                </button>
+                </p>
             )}
 
             {canAccept && (
                 <Link
-                    to={`/custom-checkout/${order.id}`}
+                    to={`/checkout/custom/${order.id}`}
+                    onClick={e => e.stopPropagation()}
                     className="mt-3 block w-full text-center bg-primary text-black font-bold py-2.5 rounded-xl hover:brightness-90 transition-all text-sm"
                 >
                     Accept &amp; Pay ₹{Number(order.quoted_price).toLocaleString('en-IN')}
                 </Link>
             )}
+
+            {!canAccept && (
+                <div className="flex justify-end mt-2">
+                    <span className="text-xs text-primary font-semibold flex items-center gap-1">View details <ChevronRight size={13} /></span>
+                </div>
+            )}
         </motion.div>
+    );
+};
+
+const CustomOrderDetailsView = ({ order, onBack }) => {
+    const cfg = customStatusConfig[order.status] || customStatusConfig['Pending Quote'];
+    let detailsParsed = [];
+    try { detailsParsed = JSON.parse(order.order_details || '[]'); } catch {}
+    const createdDate = order.created_at
+        ? new Date(order.created_at.replace(' ', 'T') + 'Z').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+        : null;
+    const hasDesignImage = order.order_type === 'jersey' && order.design_image &&
+        ['data:image/jpeg;base64,', 'data:image/png;base64,', 'data:image/webp;base64,'].some(m => order.design_image.startsWith(m));
+
+    return (
+        <div className="container mx-auto px-4 py-8 max-w-2xl min-h-[70vh]">
+            <button
+                onClick={onBack}
+                className="flex items-center gap-2 text-gray-500 hover:text-primary font-semibold mb-6 transition-colors"
+            >
+                <ChevronLeft size={20} /> Back to Orders
+            </button>
+
+            <div className="flex items-baseline gap-3 mb-6">
+                <h1 className="text-3xl font-bold font-heading">Custom Order Details</h1>
+                <span className="text-lg font-mono font-semibold text-primary">CO-{order.id}</span>
+            </div>
+
+            <span className={`inline-flex items-center gap-1.5 text-sm font-bold px-3 py-1.5 rounded-full mb-6 ${cfg.color}`}>
+                {cfg.icon} {order.status}
+            </span>
+
+            <div className="bg-white dark:bg-[#1e1e1e] rounded-2xl border border-gray-100 dark:border-gray-800 p-6 mb-4">
+                <h2 className="font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider mb-4">Design Details</h2>
+
+                {hasDesignImage && (
+                    <img
+                        src={order.design_image}
+                        alt="Your design"
+                        className="w-32 h-32 object-contain rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 mb-4"
+                    />
+                )}
+
+                <div className="space-y-2 text-sm mb-4">
+                    <div className="flex justify-between">
+                        <span className="text-gray-500">Type</span>
+                        <span className="font-bold">{order.order_type === 'jersey' ? 'Jersey Design' : 'Team Names'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                        <span className="text-gray-500">Shirt</span>
+                        <span className="font-bold capitalize">{order.shirt_color} · {order.shirt_style === 'round' ? 'Regular' : 'Oversized'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                        <span className="text-gray-500">Total Qty</span>
+                        <span className="font-bold">{order.quantity} pcs</span>
+                    </div>
+                    <div className="flex justify-between">
+                        <span className="text-gray-500">Requested On</span>
+                        <span className="font-bold">{createdDate || 'N/A'}</span>
+                    </div>
+                </div>
+
+                {detailsParsed.length > 0 && (
+                    <div className="mb-4">
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
+                            {order.order_type === 'jersey' ? 'Sizes' : 'Names List'}
+                        </p>
+                        {order.order_type === 'jersey' ? (
+                            <div className="flex flex-wrap gap-2">
+                                {detailsParsed.map((r, i) => (
+                                    <span key={i} className="px-3 py-1 bg-gray-100 dark:bg-gray-800 rounded-full text-xs font-semibold">
+                                        {r.size} × {r.qty}
+                                    </span>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="max-h-40 overflow-y-auto">
+                                <table className="text-xs w-full">
+                                    <thead>
+                                        <tr className="text-gray-400">
+                                            <th className="text-left pb-1 font-bold uppercase tracking-wider">Name</th>
+                                            <th className="text-left pb-1 font-bold uppercase tracking-wider pl-4">Size</th>
+                                            <th className="text-left pb-1 font-bold uppercase tracking-wider pl-4">Qty</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {detailsParsed.map((r, i) => (
+                                            <tr key={i} className="border-t border-gray-100 dark:border-gray-800">
+                                                <td className="py-1 font-medium">{r.name}</td>
+                                                <td className="py-1 pl-4">{r.size}</td>
+                                                <td className="py-1 pl-4">{r.qty}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {order.notes && (
+                    <p className="text-xs text-gray-500 italic mb-4">Note: {order.notes}</p>
+                )}
+
+                <div className="pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                    <span className="font-bold text-gray-500 text-sm">Quoted Price</span>
+                    <span className="font-bold text-primary text-lg">
+                        {order.quoted_price != null ? `₹${Number(order.quoted_price).toLocaleString('en-IN')}` : 'Awaiting quote'}
+                    </span>
+                </div>
+            </div>
+
+            {order.status === 'Pending Quote' && (
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 text-yellow-800 dark:text-yellow-300 p-4 rounded-xl text-sm">
+                    We're preparing your quote — you'll be notified once it's ready.
+                </div>
+            )}
+
+            {order.status === 'Quoted' && order.quoted_price && (
+                <Link
+                    to={`/checkout/custom/${order.id}`}
+                    className="block w-full text-center bg-primary text-black font-bold py-3 rounded-xl hover:brightness-90 transition-all"
+                >
+                    Accept &amp; Pay ₹{Number(order.quoted_price).toLocaleString('en-IN')}
+                </Link>
+            )}
+
+            {order.status === 'Cancelled' && (
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 p-4 rounded-xl text-sm">
+                    This custom order was cancelled.
+                </div>
+            )}
+        </div>
     );
 };
 
@@ -218,6 +356,7 @@ const Orders = () => {
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedOrder, setSelectedOrder] = useState(null);
+    const [selectedCustomOrder, setSelectedCustomOrder] = useState(null);
     const [activeTab, setActiveTab] = useState('orders'); // 'orders' | 'custom'
     const [customOrders, setCustomOrders] = useState([]);
     const [loadingCustom, setLoadingCustom] = useState(true);
@@ -290,6 +429,16 @@ const Orders = () => {
                     Go to Login
                 </Link>
             </div>
+        );
+    }
+
+    // ── Custom Order Details View ─────────────────────────────────
+    if (selectedCustomOrder) {
+        return (
+            <CustomOrderDetailsView
+                order={selectedCustomOrder}
+                onBack={() => setSelectedCustomOrder(null)}
+            />
         );
     }
 
@@ -483,9 +632,12 @@ const Orders = () => {
                             <CustomOrderCard
                                 key={order.id}
                                 order={order}
-                                onViewDetails={() => {
-                                    const linked = orders.find(o => o.id === order.confirmed_order_id);
-                                    if (linked) setSelectedOrder(linked);
+                                onClick={() => {
+                                    if (order.confirmed_order_id) {
+                                        const linked = orders.find(o => o.id === order.confirmed_order_id);
+                                        if (linked) { setSelectedOrder(linked); return; }
+                                    }
+                                    setSelectedCustomOrder(order);
                                 }}
                             />
                         ))}

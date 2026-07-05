@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCart } from '../context/CartContext';
 import { CheckCircle2, Tag, X } from 'lucide-react';
@@ -8,6 +8,7 @@ import { jwtDecode } from 'jwt-decode';
 import {
     saveCustomer, updateCustomer, saveOrder,
     fetchUserDetails, addAddress, initPayment, initCodPayment, checkPaymentStatus, validateCoupon, fetchAvailableCoupons,
+    getMyCustomOrders, initCustomOrderPayment, initCustomOrderCodPayment,
 } from '../api/api';
 
 const COD_ADVANCE_AMOUNT = 100;
@@ -15,8 +16,17 @@ import { useUser } from '../context/UserContext';
 
 const Checkout = () => {
     const navigate = useNavigate();
+    const { customOrderId } = useParams();
+    const isCustomMode = !!customOrderId;
     const { cartItems, getCartTotal, clearCart } = useCart();
     const { user, setUser } = useUser();
+
+    // ── Custom order mode: paying for an admin-quoted custom design instead
+    // of the cart. Reuses this exact same login/address/payment flow, including
+    // online-or-COD choice — only the amount source (the quote, not the cart)
+    // and coupon support (none — the quote is fixed) differ.
+    const [customOrder, setCustomOrder] = useState(null);
+    const [customOrderNotFound, setCustomOrderNotFound] = useState(false);
 
     const [step, setStep] = useState(1);
 
@@ -64,8 +74,22 @@ const Checkout = () => {
     }, []);
 
     useEffect(() => {
+        if (isCustomMode) return;
         if (cartItems.length === 0) navigate('/cart');
-    }, [cartItems, navigate]);
+    }, [cartItems, navigate, isCustomMode]);
+
+    // Load the specific custom order (must still be 'Quoted' to pay for)
+    useEffect(() => {
+        if (!isCustomMode || !user?.idToken) return;
+        getMyCustomOrders(user.idToken).then(res => {
+            const found = (res.orders || []).find(o => String(o.id) === String(customOrderId));
+            if (!found || found.status !== 'Quoted' || !found.quoted_price) {
+                setCustomOrderNotFound(true);
+            } else {
+                setCustomOrder(found);
+            }
+        }).catch(() => setCustomOrderNotFound(true));
+    }, [isCustomMode, user?.idToken, customOrderId]);
 
     // Effect 1: as soon as the user's email is known (from localStorage or fresh
     // login) populate name/email/phone and advance to Step 2.
@@ -126,15 +150,20 @@ const Checkout = () => {
         };
     };
 
-    const deliveryDetails  = getDeliveryDetails(formData.pincode);
-    const isPincodeValid   = !deliveryDetails.error && /^\d{6}$/.test(formData.pincode);
-    const deliveryCharge   = isPincodeValid ? deliveryDetails.charge : 0;
-    const isFreeDelivery   = isPincodeValid && deliveryCharge === 0 && deliveryDetails.message?.includes('Free');
-    const isCodAvailable   = isPincodeValid && deliveryDetails.isCod;
-    const subtotal         = getCartTotal();
+    // Custom orders: the admin's quote already includes delivery and has no
+    // coupon support, so no delivery-charge messaging is shown — but COD
+    // availability follows the exact same pincode-zone rule as regular orders
+    // (same courier network), so custom orders get a real online-or-COD choice.
+    const rawDeliveryDetails = getDeliveryDetails(formData.pincode);
+    const isPincodeValid   = !rawDeliveryDetails.error && /^\d{6}$/.test(formData.pincode);
+    const deliveryDetails  = isCustomMode ? { charge: 0, message: '', error: rawDeliveryDetails.error } : rawDeliveryDetails;
+    const deliveryCharge   = isCustomMode ? 0 : (isPincodeValid ? deliveryDetails.charge : 0);
+    const isFreeDelivery   = !isCustomMode && isPincodeValid && deliveryCharge === 0 && deliveryDetails.message?.includes('Free');
+    const isCodAvailable   = isPincodeValid && rawDeliveryDetails.isCod;
+    const subtotal         = isCustomMode ? (customOrder?.quoted_price || 0) : getCartTotal();
     // Server is the source of truth for the discount amount (it applies the Max_Discount
     // cap) — the client never recomputes the raw percentage itself.
-    const couponDiscount   = appliedCoupon?.discountAmount || 0;
+    const couponDiscount   = isCustomMode ? 0 : (appliedCoupon?.discountAmount || 0);
     const finalTotal       = subtotal + deliveryCharge - couponDiscount;
 
     // ── Handlers ──────────────────────────────────────────────────────────────
@@ -177,7 +206,7 @@ const Checkout = () => {
     // summary step — powers the clickable chips. Server re-validates on click
     // (and again at order time) so this list is only ever a convenience.
     useEffect(() => {
-        if (step !== 3) return;
+        if (step !== 3 || isCustomMode) return;
         fetchAvailableCoupons(user?.idToken, subtotal)
             .then(res => setAvailableCoupons(res?.success ? res.coupons : []))
             .catch(() => setAvailableCoupons([]));
@@ -335,21 +364,33 @@ const Checkout = () => {
         setIsPayingOnline(true);
         setPayError('');
         try {
-            const cart = cartItems.map(i => ({
-                productId: i.ID,
-                size:      i.size,
-                quantity:  i.quantity,
-            }));
-            const result = await initPayment({
-                idToken:    user.idToken,
-                cart,
-                name:       formData.fullName,
-                email:      formData.email,
-                phone:      formData.mobileNumber,
-                address:    formData.address,
-                pincode:    formData.pincode,
-                couponCode: appliedCoupon?.code || null,
-            });
+            let result;
+            if (isCustomMode) {
+                result = await initCustomOrderPayment({
+                    idToken:       user.idToken,
+                    customOrderId: customOrder.id,
+                    name:          formData.fullName,
+                    mobile:        formData.mobileNumber,
+                    address:       formData.address,
+                    pincode:       formData.pincode,
+                });
+            } else {
+                const cart = cartItems.map(i => ({
+                    productId: i.ID,
+                    size:      i.size,
+                    quantity:  i.quantity,
+                }));
+                result = await initPayment({
+                    idToken:    user.idToken,
+                    cart,
+                    name:       formData.fullName,
+                    email:      formData.email,
+                    phone:      formData.mobileNumber,
+                    address:    formData.address,
+                    pincode:    formData.pincode,
+                    couponCode: appliedCoupon?.code || null,
+                });
+            }
             if (!result.success || !result.payment_session_id) {
                 const msg = result.error === 'Unauthorized'
                     ? 'Session expired. Please sign out and sign in again.'
@@ -377,7 +418,7 @@ const Checkout = () => {
             const statusRes = await pollPaymentStatus(result.order_id);
 
             if (statusRes?.status === 'SUCCESS') {
-                clearCart();
+                if (!isCustomMode) clearCart();
                 navigate('/orders', { state: { orderPlaced: true } });
             } else if (statusRes?.status === 'FAILED') {
                 setPayError('Payment was declined or cancelled. Please try a different method.');
@@ -406,21 +447,33 @@ const Checkout = () => {
         setIsPayingCod(true);
         setPayError('');
         try {
-            const cart = cartItems.map(i => ({
-                productId: i.ID,
-                size:      i.size,
-                quantity:  i.quantity,
-            }));
-            const result = await initCodPayment({
-                idToken:    user.idToken,
-                cart,
-                name:       formData.fullName,
-                email:      formData.email,
-                phone:      formData.mobileNumber,
-                address:    formData.address,
-                pincode:    formData.pincode,
-                couponCode: appliedCoupon?.code || null,
-            });
+            let result;
+            if (isCustomMode) {
+                result = await initCustomOrderCodPayment({
+                    idToken:       user.idToken,
+                    customOrderId: customOrder.id,
+                    name:          formData.fullName,
+                    mobile:        formData.mobileNumber,
+                    address:       formData.address,
+                    pincode:       formData.pincode,
+                });
+            } else {
+                const cart = cartItems.map(i => ({
+                    productId: i.ID,
+                    size:      i.size,
+                    quantity:  i.quantity,
+                }));
+                result = await initCodPayment({
+                    idToken:    user.idToken,
+                    cart,
+                    name:       formData.fullName,
+                    email:      formData.email,
+                    phone:      formData.mobileNumber,
+                    address:    formData.address,
+                    pincode:    formData.pincode,
+                    couponCode: appliedCoupon?.code || null,
+                });
+            }
             if (!result.success || !result.payment_session_id) {
                 const msg = result.error === 'Unauthorized'
                     ? 'Session expired. Please sign out and sign in again.'
@@ -438,7 +491,7 @@ const Checkout = () => {
             const statusRes = await pollPaymentStatus(result.order_id);
 
             if (statusRes?.status === 'SUCCESS') {
-                clearCart();
+                if (!isCustomMode) clearCart();
                 navigate('/orders', { state: { orderPlaced: true } });
             } else if (statusRes?.status === 'FAILED') {
                 setPayError('Advance payment was declined or cancelled. Please try again.');
@@ -460,12 +513,31 @@ const Checkout = () => {
         { id: 3, title: 'Summary' },
     ];
 
-    if (cartItems.length === 0) return null;
+    if (!isCustomMode && cartItems.length === 0) return null;
+
+    if (isCustomMode && customOrderNotFound) {
+        return (
+            <div className="container mx-auto px-4 py-20 min-h-[60vh] flex flex-col items-center justify-center text-center gap-4">
+                <p className="text-gray-500 dark:text-gray-400">This custom order isn't available to pay for right now.</p>
+                <Link to="/orders" className="bg-primary text-black font-bold py-3 px-8 rounded-xl hover:brightness-90 transition-all">
+                    Back to Orders
+                </Link>
+            </div>
+        );
+    }
+
+    if (isCustomMode && !customOrder) {
+        return (
+            <div className="min-h-[60vh] flex items-center justify-center">
+                <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-primary" />
+            </div>
+        );
+    }
 
     return (
         <div className="container mx-auto px-4 py-8 mb-20 max-w-2xl min-h-[70vh]">
             <h1 className="text-3xl font-heading font-bold mb-8 text-center bg-clip-text text-transparent bg-gradient-to-r from-primary to-cyan-500">
-                Secure Checkout
+                {isCustomMode ? 'Custom Order Payment' : 'Secure Checkout'}
             </h1>
 
             {/* Progress stepper */}
@@ -777,7 +849,8 @@ const Checkout = () => {
                                 <p className="text-gray-600 dark:text-gray-400">+91 {formData.mobileNumber}</p>
                             </div>
 
-                            {/* Coupon Code */}
+                            {/* Coupon Code — not applicable to custom orders (fixed quoted price) */}
+                            {!isCustomMode && (
                             <div className="bg-gray-50 dark:bg-gray-900 rounded-xl p-4 border border-gray-100 dark:border-gray-800">
                                 <h3 className="font-bold text-gray-500 dark:text-gray-400 text-sm mb-3 uppercase tracking-wider flex items-center gap-2">
                                     <Tag size={14} /> Coupon Code
@@ -847,33 +920,49 @@ const Checkout = () => {
                                     )}
                                 </AnimatePresence>
                             </div>
+                            )}
 
-                            {/* Products */}
+                            {/* Products / Custom Order */}
                             <div className="bg-gray-50 dark:bg-gray-900 rounded-xl p-4 border border-gray-100 dark:border-gray-800">
-                                <h3 className="font-bold text-gray-500 dark:text-gray-400 text-sm mb-3 uppercase tracking-wider">Products</h3>
-                                <div className="space-y-3 divide-y divide-gray-200 dark:divide-gray-800">
-                                    {cartItems.map((item, idx) => (
-                                        <div key={idx} className="flex justify-between py-2 first:pt-0 last:pb-0">
-                                            <div className="flex-1">
-                                                <p className="font-semibold text-sm line-clamp-1">{item.Name}</p>
-                                                <p className="text-xs text-gray-500">Size: {item.size} × {item.quantity}</p>
+                                <h3 className="font-bold text-gray-500 dark:text-gray-400 text-sm mb-3 uppercase tracking-wider">
+                                    {isCustomMode ? 'Custom Order' : 'Products'}
+                                </h3>
+                                {isCustomMode ? (
+                                    <div className="py-2">
+                                        <p className="font-semibold text-sm">
+                                            {customOrder.order_type === 'jersey' ? 'Jersey Design' : 'Team Names Order'}
+                                        </p>
+                                        <p className="text-xs text-gray-500">
+                                            {customOrder.quantity} pcs · {customOrder.shirt_color} {customOrder.shirt_style === 'round' ? 'Regular' : 'Oversized'}
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-3 divide-y divide-gray-200 dark:divide-gray-800">
+                                        {cartItems.map((item, idx) => (
+                                            <div key={idx} className="flex justify-between py-2 first:pt-0 last:pb-0">
+                                                <div className="flex-1">
+                                                    <p className="font-semibold text-sm line-clamp-1">{item.Name}</p>
+                                                    <p className="text-xs text-gray-500">Size: {item.size} × {item.quantity}</p>
+                                                </div>
+                                                <p className="font-bold whitespace-nowrap ml-4">₹{item.Price * item.quantity}</p>
                                             </div>
-                                            <p className="font-bold whitespace-nowrap ml-4">₹{item.Price * item.quantity}</p>
-                                        </div>
-                                    ))}
-                                </div>
+                                        ))}
+                                    </div>
+                                )}
 
                                 <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 space-y-2 text-sm">
                                     <div className="flex justify-between items-center text-gray-600 dark:text-gray-400">
                                         <span>Subtotal</span>
                                         <span className="font-bold text-black dark:text-white">₹{subtotal}</span>
                                     </div>
+                                    {!isCustomMode && (
                                     <div className="flex justify-between items-center text-gray-600 dark:text-gray-400">
                                         <span>Delivery Charge {isFreeDelivery ? '🎉' : (deliveryCharge > 0 ? '🚚' : '')}</span>
                                         <span className={`font-bold ${isFreeDelivery ? 'text-green-500' : 'text-black dark:text-white'}`}>
                                             {isFreeDelivery ? 'Free' : (deliveryCharge > 0 ? `₹${deliveryCharge}` : 'TBD')}
                                         </span>
                                     </div>
+                                    )}
 
                                     {appliedCoupon && (
                                         <div className="flex justify-between items-center text-green-600 dark:text-green-400">
@@ -961,18 +1050,20 @@ const Checkout = () => {
                                         ) : `PAY ₹${COD_ADVANCE_AMOUNT} ADVANCE (COD)`}
                                     </button>
                                 ) : (
-                                    <button
-                                        onClick={handlePlaceOrder}
-                                        disabled={isPlacingOrder || isPayingOnline || !user?.idToken}
-                                        className="flex-1 py-4 bg-gray-900 dark:bg-white text-white dark:text-black font-bold rounded-xl hover:opacity-80 transition-opacity flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                        {isPlacingOrder ? (
-                                            <>
-                                                <div className="w-5 h-5 border-2 border-white dark:border-black border-t-transparent rounded-full animate-spin" />
-                                                PLACING...
-                                            </>
-                                        ) : 'PLACE ORDER'}
-                                    </button>
+                                    !isCustomMode && (
+                                        <button
+                                            onClick={handlePlaceOrder}
+                                            disabled={isPlacingOrder || isPayingOnline || !user?.idToken}
+                                            className="flex-1 py-4 bg-gray-900 dark:bg-white text-white dark:text-black font-bold rounded-xl hover:opacity-80 transition-opacity flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            {isPlacingOrder ? (
+                                                <>
+                                                    <div className="w-5 h-5 border-2 border-white dark:border-black border-t-transparent rounded-full animate-spin" />
+                                                    PLACING...
+                                                </>
+                                            ) : 'PLACE ORDER'}
+                                        </button>
+                                    )
                                 )}
                             </div>
                         </motion.div>

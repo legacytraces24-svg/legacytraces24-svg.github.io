@@ -24,6 +24,10 @@ const formatDate = (ts) => {
     return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
+// D1 timestamps start with 'YYYY-MM-DD' — slicing gives the value an
+// <input type="date"> expects, regardless of separator/time portion.
+const toDateInputValue = (ts) => (ts ? ts.slice(0, 10) : '');
+
 const ALL_ORDER_STATUSES = ['New', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Pending Payment', 'Payment Failed'];
 
 const CUSTOM_STATUSES = [
@@ -113,6 +117,10 @@ const AdminDashboard = () => {
                     init[o.id] = {
                         trackingId:      o.TrackingId || '',
                         shippingCompany: o.ShippingCompany || '',
+                        status:          o.OrderStatus || 'New',
+                        shippedAt:       toDateInputValue(o.ShippedAt),
+                        deliveryEta:     toDateInputValue(o.DeliveryEta),
+                        deliveredAt:     toDateInputValue(o.DeliveredAt),
                     };
                 });
                 setOrderEditState(init);
@@ -146,8 +154,14 @@ const AdminDashboard = () => {
 
     // ── Regular orders ────────────────────────────────────────────────────────
 
+    // Revenue only counts orders that were actually confirmed — a "Pending
+    // Payment"/"Payment Failed"/"Cancelled" row's amount_paid was never really
+    // collected, even though it's set at order-creation time for later display.
+    const UNPAID_STATUSES = ['Pending Payment', 'Payment Failed', 'Cancelled'];
     const totalOrders   = orders.length;
-    const totalRevenue  = orders.reduce((s, o) => s + Number(o.AmountPaid || 0), 0);
+    const totalRevenue  = orders
+        .filter(o => !UNPAID_STATUSES.includes(o.OrderStatus || 'New'))
+        .reduce((s, o) => s + Number(o.AmountPaid || 0), 0);
     const totalItems    = orders.reduce((s, o) => s + Number(o.TotalTshirts || 0), 0);
     const codOrders     = orders.filter(o => o.COD === 'Yes').length;
     const prepaidOrders = orders.filter(o => o.COD !== 'Yes').length;
@@ -158,29 +172,48 @@ const AdminDashboard = () => {
         Delivered: orders.filter(o => o.OrderStatus === 'Delivered').length,
     };
 
-    const handleStatusChange = async (orderId, newStatus) => {
-        try {
-            await updateOrderStatus(user.idToken, orderId, newStatus);
-            setOrders(orders.map(o => o.id === orderId ? { ...o, OrderStatus: newStatus } : o));
-        } catch {
-            alert('Failed to update order status.');
-        }
-    };
-
     const handleOrderEdit = (id, field, value) =>
         setOrderEditState(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
 
+    // Saves status + shipping company + tracking ID + all three dates in one
+    // call. Blocks the save client-side (mirroring the server-side guard) when
+    // moving to Shipped without a tracking ID and shipping company on file.
     const saveOrderShipping = async (orderId) => {
         const e = orderEditState[orderId];
         if (!e) return;
+        if (e.status === 'Shipped' && (!e.trackingId?.trim() || !e.shippingCompany?.trim())) {
+            alert('Tracking ID and Shipping Company are required before marking an order as Shipped.');
+            return;
+        }
         setSavingOrderId(orderId);
         try {
-            await updateOrderStatus(user.idToken, orderId, null, e.trackingId || null, e.shippingCompany || null);
-            setOrders(prev => prev.map(o => o.id === orderId
-                ? { ...o, TrackingId: e.trackingId, ShippingCompany: e.shippingCompany }
-                : o));
+            const toTs = (dateStr) => dateStr ? `${dateStr} 00:00:00` : null;
+            const res = await updateOrderStatus(
+                user.idToken, orderId,
+                e.status || null,
+                e.trackingId || null,
+                e.shippingCompany || null,
+                toTs(e.shippedAt),
+                toTs(e.deliveryEta),
+                toTs(e.deliveredAt),
+            );
+            if (res?.error) {
+                alert(res.error);
+            } else {
+                setOrders(prev => prev.map(o => o.id === orderId
+                    ? {
+                        ...o,
+                        OrderStatus:     e.status,
+                        TrackingId:      e.trackingId,
+                        ShippingCompany: e.shippingCompany,
+                        ShippedAt:       toTs(e.shippedAt)   || o.ShippedAt,
+                        DeliveryEta:     toTs(e.deliveryEta) || o.DeliveryEta,
+                        DeliveredAt:     toTs(e.deliveredAt) || o.DeliveredAt,
+                    }
+                    : o));
+            }
         } catch {
-            alert('Failed to update shipping details.');
+            alert('Failed to update order.');
         }
         setSavingOrderId(null);
     };
@@ -453,41 +486,34 @@ const AdminDashboard = () => {
                                     <table className="w-full text-left border-collapse">
                                         <thead>
                                             <tr className="bg-gray-50 dark:bg-gray-900/50 text-gray-500 dark:text-gray-400 text-sm">
-                                                <th className="p-4 font-medium">
+                                                <th className="p-2.5 font-medium">
                                                     <button onClick={() => toggleSort('id')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100">
                                                         Order ID <SortIcon col="id" />
                                                     </button>
                                                 </th>
-                                                <th className="p-4 font-medium">
+                                                <th className="p-2.5 font-medium">
                                                     <button onClick={() => toggleSort('name')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100">
                                                         Customer <SortIcon col="name" />
                                                     </button>
                                                 </th>
-                                                <th className="p-4 font-medium">Mobile</th>
-                                                <th className="p-4 font-medium">
+                                                <th className="p-2.5 font-medium">Mobile</th>
+                                                <th className="p-2.5 font-medium">
                                                     <button onClick={() => toggleSort('amount')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100">
                                                         Amount <SortIcon col="amount" />
                                                     </button>
                                                 </th>
-                                                <th className="p-4 font-medium">Type</th>
-                                                <th className="p-4 font-medium">
+                                                <th className="p-2.5 font-medium">Type</th>
+                                                <th className="p-2.5 font-medium">
                                                     <button onClick={() => toggleSort('status')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100">
                                                         Status <SortIcon col="status" />
                                                     </button>
                                                 </th>
-                                                <th className="p-4 font-medium">
+                                                <th className="p-2.5 font-medium">
                                                     <button onClick={() => toggleSort('created')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100">
                                                         Created <SortIcon col="created" />
                                                     </button>
                                                 </th>
-                                                <th className="p-4 font-medium">Shipping Co.</th>
-                                                <th className="p-4 font-medium">
-                                                    <button onClick={() => toggleSort('shipped')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100">
-                                                        Shipped <SortIcon col="shipped" />
-                                                    </button>
-                                                </th>
-                                                <th className="p-4 font-medium">Update Status</th>
-                                                <th className="p-4 font-medium">Details</th>
+                                                <th className="p-2.5 font-medium">Details</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -498,16 +524,17 @@ const AdminDashboard = () => {
                                                 const isCOD    = order.COD === 'Yes';
                                                 const status   = order.OrderStatus || 'New';
                                                 const isOpen   = expandedOrderId === id;
-                                                const edit     = orderEditState[id] || { trackingId: '', shippingCompany: '' };
+                                                const edit     = orderEditState[id] || { trackingId: '', shippingCompany: '', status: 'New', shippedAt: '', deliveryEta: '', deliveredAt: '' };
+                                                const needsShippingFields = edit.status === 'Shipped' && (!edit.trackingId?.trim() || !edit.shippingCompany?.trim());
                                                 return (
                                                 <React.Fragment key={id}>
                                                     <tr className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                                                        <td className="p-4 font-mono font-semibold text-primary">LT-{id}</td>
-                                                        <td className="p-4">
+                                                        <td className="p-2.5 font-mono font-semibold text-primary">LT-{id}</td>
+                                                        <td className="p-2.5">
                                                             <div className="font-medium">{name}</div>
                                                             {order.Email && <div className="text-xs text-gray-400 truncate max-w-[160px]">{order.Email}</div>}
                                                         </td>
-                                                        <td className="p-4">
+                                                        <td className="p-2.5">
                                                             {order.Mobile ? (
                                                                 <a
                                                                     href={whatsappLink(order.Mobile)}
@@ -520,13 +547,13 @@ const AdminDashboard = () => {
                                                                 </a>
                                                             ) : <span className="text-gray-400">—</span>}
                                                         </td>
-                                                        <td className="p-4 font-semibold text-primary">₹{amount}</td>
-                                                        <td className="p-4">
+                                                        <td className="p-2.5 font-semibold text-primary">₹{amount}</td>
+                                                        <td className="p-2.5">
                                                             <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${isCOD ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'}`}>
                                                                 {isCOD ? 'COD' : 'Prepaid'}
                                                             </span>
                                                         </td>
-                                                        <td className="p-4">
+                                                        <td className="p-2.5">
                                                             <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${
                                                                 status === 'New' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' :
                                                                 status === 'Processing' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' :
@@ -538,25 +565,10 @@ const AdminDashboard = () => {
                                                                 {status}
                                                             </span>
                                                         </td>
-                                                        <td className="p-4 text-sm whitespace-nowrap">
+                                                        <td className="p-2.5 text-sm whitespace-nowrap">
                                                             {formatDate(order.CreatedAt) || <span className="text-gray-400">—</span>}
                                                         </td>
-                                                        <td className="p-4 text-sm">
-                                                            {order.ShippingCompany || <span className="text-gray-400">—</span>}
-                                                        </td>
-                                                        <td className="p-4 text-sm whitespace-nowrap">
-                                                            {formatDate(order.ShippedAt) || <span className="text-gray-400">—</span>}
-                                                        </td>
-                                                        <td className="p-4">
-                                                            <select
-                                                                className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2"
-                                                                value={status}
-                                                                onChange={e => handleStatusChange(id, e.target.value)}
-                                                            >
-                                                                {ALL_ORDER_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                                                            </select>
-                                                        </td>
-                                                        <td className="p-4">
+                                                        <td className="p-2.5">
                                                             <button
                                                                 onClick={() => setExpandedOrderId(isOpen ? null : id)}
                                                                 className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
@@ -568,7 +580,7 @@ const AdminDashboard = () => {
                                                     </tr>
                                                     {isOpen && (
                                                         <tr className="bg-gray-50 dark:bg-gray-900/40 border-b border-gray-100 dark:border-gray-700">
-                                                            <td colSpan="10" className="p-5">
+                                                            <td colSpan="7" className="p-5">
                                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                                                                     <div>
                                                                         <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Shipping Address</p>
@@ -577,32 +589,76 @@ const AdminDashboard = () => {
                                                                         <p className="text-sm whitespace-pre-line">{order.ProductList || '—'}</p>
                                                                     </div>
                                                                     <div className="flex flex-col gap-3">
-                                                                        <div>
-                                                                            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Shipping Company</label>
-                                                                            <input
-                                                                                type="text"
-                                                                                value={edit.shippingCompany}
-                                                                                onChange={ev => handleOrderEdit(id, 'shippingCompany', ev.target.value)}
-                                                                                placeholder="e.g. Delhivery, Blue Dart…"
-                                                                                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                                                                            />
+                                                                        <div className="grid grid-cols-2 gap-3">
+                                                                            <div>
+                                                                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Order Status</label>
+                                                                                <select
+                                                                                    value={edit.status}
+                                                                                    onChange={ev => handleOrderEdit(id, 'status', ev.target.value)}
+                                                                                    className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                                                                                >
+                                                                                    {ALL_ORDER_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                                                                                </select>
+                                                                            </div>
+                                                                            <div>
+                                                                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Shipping Company</label>
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={edit.shippingCompany}
+                                                                                    onChange={ev => handleOrderEdit(id, 'shippingCompany', ev.target.value)}
+                                                                                    placeholder="e.g. Delhivery, Blue Dart…"
+                                                                                    className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                                                                                />
+                                                                            </div>
+                                                                            <div>
+                                                                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Tracking ID</label>
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={edit.trackingId}
+                                                                                    onChange={ev => handleOrderEdit(id, 'trackingId', ev.target.value)}
+                                                                                    placeholder="Courier tracking number"
+                                                                                    className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                                                                                />
+                                                                            </div>
+                                                                            <div>
+                                                                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Shipped Date</label>
+                                                                                <input
+                                                                                    type="date"
+                                                                                    value={edit.shippedAt}
+                                                                                    onChange={ev => handleOrderEdit(id, 'shippedAt', ev.target.value)}
+                                                                                    className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                                                                                />
+                                                                            </div>
+                                                                            <div>
+                                                                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Delivery ETA</label>
+                                                                                <input
+                                                                                    type="date"
+                                                                                    value={edit.deliveryEta}
+                                                                                    onChange={ev => handleOrderEdit(id, 'deliveryEta', ev.target.value)}
+                                                                                    className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                                                                                />
+                                                                            </div>
+                                                                            <div>
+                                                                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Delivered Date</label>
+                                                                                <input
+                                                                                    type="date"
+                                                                                    value={edit.deliveredAt}
+                                                                                    onChange={ev => handleOrderEdit(id, 'deliveredAt', ev.target.value)}
+                                                                                    className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                                                                                />
+                                                                            </div>
                                                                         </div>
-                                                                        <div>
-                                                                            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Tracking ID</label>
-                                                                            <input
-                                                                                type="text"
-                                                                                value={edit.trackingId}
-                                                                                onChange={ev => handleOrderEdit(id, 'trackingId', ev.target.value)}
-                                                                                placeholder="Courier tracking number"
-                                                                                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                                                                            />
-                                                                        </div>
+                                                                        {needsShippingFields && (
+                                                                            <p className="text-xs text-red-500 font-medium">
+                                                                                Tracking ID and Shipping Company are required to mark this order as Shipped.
+                                                                            </p>
+                                                                        )}
                                                                         <button
                                                                             onClick={() => saveOrderShipping(id)}
-                                                                            disabled={savingOrderId === id}
+                                                                            disabled={savingOrderId === id || needsShippingFields}
                                                                             className="self-start px-5 py-2 bg-primary text-black rounded-lg font-bold text-sm hover:brightness-90 transition-all disabled:opacity-60"
                                                                         >
-                                                                            {savingOrderId === id ? 'Saving…' : 'Save Shipping Details'}
+                                                                            {savingOrderId === id ? 'Saving…' : 'Save Order Details'}
                                                                         </button>
                                                                     </div>
                                                                 </div>
@@ -613,7 +669,7 @@ const AdminDashboard = () => {
                                                 );
                                             }) : (
                                                 <tr>
-                                                    <td colSpan="10" className="p-8 text-center text-gray-500">
+                                                    <td colSpan="7" className="p-8 text-center text-gray-500">
                                                         {orders.length === 0 ? 'No orders yet.' : 'No orders match your filters.'}
                                                     </td>
                                                 </tr>
@@ -864,20 +920,19 @@ const AdminDashboard = () => {
                                                 {/* Shipping — only once the customer has paid and the custom
                                                     order became a real order (orders.id === confirmed_order_id) */}
                                                 {order.confirmed_order_id && (() => {
-                                                    const linkedOrder = orders.find(o => o.id === order.confirmed_order_id);
-                                                    const shipEdit = orderEditState[order.confirmed_order_id] || { trackingId: '', shippingCompany: '' };
-                                                    const shipStatus = linkedOrder?.OrderStatus || 'New';
+                                                    const shipEdit = orderEditState[order.confirmed_order_id] || { trackingId: '', shippingCompany: '', status: 'New', shippedAt: '', deliveryEta: '', deliveredAt: '' };
+                                                    const needsShippingFields = shipEdit.status === 'Shipped' && (!shipEdit.trackingId?.trim() || !shipEdit.shippingCompany?.trim());
                                                     return (
                                                         <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
                                                             <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
                                                                 Shipping — Order #{order.confirmed_order_id}
                                                             </p>
-                                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                                                                 <div>
                                                                     <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Order Status</label>
                                                                     <select
-                                                                        value={shipStatus}
-                                                                        onChange={ev => handleStatusChange(order.confirmed_order_id, ev.target.value)}
+                                                                        value={shipEdit.status}
+                                                                        onChange={ev => handleOrderEdit(order.confirmed_order_id, 'status', ev.target.value)}
                                                                         className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                                                                     >
                                                                         {ALL_ORDER_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
@@ -895,24 +950,54 @@ const AdminDashboard = () => {
                                                                 </div>
                                                                 <div>
                                                                     <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Tracking ID</label>
-                                                                    <div className="flex gap-2">
-                                                                        <input
-                                                                            type="text"
-                                                                            value={shipEdit.trackingId}
-                                                                            onChange={ev => handleOrderEdit(order.confirmed_order_id, 'trackingId', ev.target.value)}
-                                                                            placeholder="Courier tracking number"
-                                                                            className="flex-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                                                                        />
-                                                                        <button
-                                                                            onClick={() => saveOrderShipping(order.confirmed_order_id)}
-                                                                            disabled={savingOrderId === order.confirmed_order_id}
-                                                                            className="px-4 py-2 bg-primary text-black rounded-lg font-bold text-sm hover:brightness-90 transition-all disabled:opacity-60 whitespace-nowrap"
-                                                                        >
-                                                                            {savingOrderId === order.confirmed_order_id ? '…' : 'Save'}
-                                                                        </button>
-                                                                    </div>
+                                                                    <input
+                                                                        type="text"
+                                                                        value={shipEdit.trackingId}
+                                                                        onChange={ev => handleOrderEdit(order.confirmed_order_id, 'trackingId', ev.target.value)}
+                                                                        placeholder="Courier tracking number"
+                                                                        className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Shipped Date</label>
+                                                                    <input
+                                                                        type="date"
+                                                                        value={shipEdit.shippedAt}
+                                                                        onChange={ev => handleOrderEdit(order.confirmed_order_id, 'shippedAt', ev.target.value)}
+                                                                        className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Delivery ETA</label>
+                                                                    <input
+                                                                        type="date"
+                                                                        value={shipEdit.deliveryEta}
+                                                                        onChange={ev => handleOrderEdit(order.confirmed_order_id, 'deliveryEta', ev.target.value)}
+                                                                        className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Delivered Date</label>
+                                                                    <input
+                                                                        type="date"
+                                                                        value={shipEdit.deliveredAt}
+                                                                        onChange={ev => handleOrderEdit(order.confirmed_order_id, 'deliveredAt', ev.target.value)}
+                                                                        className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                                                                    />
                                                                 </div>
                                                             </div>
+                                                            {needsShippingFields && (
+                                                                <p className="text-xs text-red-500 font-medium mt-2">
+                                                                    Tracking ID and Shipping Company are required to mark this order as Shipped.
+                                                                </p>
+                                                            )}
+                                                            <button
+                                                                onClick={() => saveOrderShipping(order.confirmed_order_id)}
+                                                                disabled={savingOrderId === order.confirmed_order_id || needsShippingFields}
+                                                                className="mt-3 px-5 py-2 bg-primary text-black rounded-lg font-bold text-sm hover:brightness-90 transition-all disabled:opacity-60"
+                                                            >
+                                                                {savingOrderId === order.confirmed_order_id ? 'Saving…' : 'Save Shipping Details'}
+                                                            </button>
                                                         </div>
                                                     );
                                                 })()}

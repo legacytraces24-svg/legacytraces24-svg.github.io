@@ -85,19 +85,33 @@ const ProductDetails = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
-    // Promote any offers this product is currently eligible for — logged-in
-    // users only, since eligibility depends on verified New/Existing customer
-    // type. Re-runs if the user logs in/out after the product has loaded, so
-    // the promo appears without needing a reload. Best-effort teaser only —
-    // checkout re-validates for real.
+    // Promote any offers this product is currently eligible for — shown to
+    // guests too (backend treats a logged-out shopper as a "New" customer for
+    // eligibility purposes), so the incentive to buy is visible before login,
+    // not just at checkout. Re-runs if the user logs in/out, so an "Existing
+    // customer" coupon appears/disappears correctly once we know who's asking.
+    // Best-effort teaser only — checkout re-validates for real.
+    //
+    // Query with a high sentinel cartTotal rather than this product's price: a
+    // coupon's min_order_value is a real cart-total threshold (e.g. ₹500), and
+    // most products here are priced under that on their own — using the
+    // per-product price would wrongly hide an otherwise-eligible coupon just
+    // because this one item alone doesn't clear the minimum. We only read
+    // percentage/minOrderValue from the result here (never discountAmount), so
+    // an inflated cartTotal is safe; the real cart total is re-checked at
+    // checkout regardless.
+    //
+    // Doesn't depend on `product` (eligibility isn't product-specific) so it
+    // fires immediately alongside the product fetch instead of waiting for it
+    // to resolve first — avoids the offer box visibly popping in after
+    // everything else has already rendered.
     useEffect(() => {
-        if (!product || !user?.idToken) { setOffers([]); return; }
         let cancelled = false;
-        fetchAvailableCoupons(user.idToken, product.Price)
+        fetchAvailableCoupons(user?.idToken || null, 100000)
             .then(res => { if (!cancelled) setOffers(res?.success ? res.coupons : []); })
             .catch(() => { if (!cancelled) setOffers([]); });
         return () => { cancelled = true; };
-    }, [product, user?.idToken]);
+    }, [user?.idToken]);
 
     if (loading) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
     if (loadError) {
@@ -124,6 +138,14 @@ const ProductDetails = () => {
 
     // Default sizes
     const sizes = ["S", "M", "L", "XL", "XXL"];
+
+    // Show only the single best offer this shopper qualifies for — `offers`
+    // already comes back from the backend filtered to whichever coupons match
+    // their New/Existing/All eligibility; pick the highest percentage among
+    // those rather than listing every eligible code.
+    const bestOffer = offers.length
+        ? offers.reduce((best, o) => o.percentage > best.percentage ? o : best, offers[0])
+        : null;
 
     return (
         <div className="container mx-auto px-2 md:px-4 py-4 md:py-8 mt-2 md:mt-8">
@@ -213,24 +235,36 @@ const ProductDetails = () => {
                             />
                         </div>
                     </div>
-                    <div className="flex items-end gap-3 mb-3 md:mb-6">
-                        <span className="text-2xl md:text-3xl font-bold text-primary">₹{product.Price}</span>
+                    <div className="mb-3 md:mb-6">
+                        <div className="flex items-end gap-3">
+                            <span className="text-2xl md:text-3xl font-bold text-primary">₹{product.Price}</span>
+                            {product.MaxPrice > product.Price && (
+                                <span className="text-base md:text-lg text-gray-400 line-through mb-0.5 md:mb-1">₹{product.MaxPrice}</span>
+                            )}
+                            {/* Badge reflects the best coupon this shopper qualifies for, not a
+                                static catalog markdown — it's the actual incentive to buy now. */}
+                            {bestOffer && (
+                                <span className="text-xs md:text-sm font-bold text-green-600 dark:text-green-400 mb-0.5 md:mb-1">
+                                    {bestOffer.percentage}% OFF
+                                </span>
+                            )}
+                        </div>
                         {product.MaxPrice > product.Price && (
-                            <span className="text-base md:text-lg text-gray-400 line-through mb-0.5 md:mb-1">₹{product.MaxPrice}</span>
+                            <p className="text-xs md:text-sm text-green-600 dark:text-green-400 font-semibold mt-1">
+                                You save ₹{(product.MaxPrice - product.Price).toFixed(0)}
+                            </p>
                         )}
                     </div>
 
-                    {offers.length > 0 && (
+                    {bestOffer && (
                         <div className="mb-4 md:mb-6 bg-primary/5 border border-dashed border-primary/40 rounded-2xl p-3 md:p-4 space-y-1.5">
                             <p className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
-                                <Tag size={13} /> Offers available at checkout
+                                <Tag size={13} /> Extra offer available — apply at checkout
                             </p>
-                            {offers.map(o => (
-                                <p key={o.code} className="text-xs md:text-sm text-gray-600 dark:text-gray-300">
-                                    Use code <span className="font-bold text-black dark:text-white">{o.code}</span> for {o.percentage}% off
-                                    {o.minOrderValue > 0 ? ` on orders above ₹${o.minOrderValue}` : ''}
-                                </p>
-                            ))}
+                            <p className="text-xs md:text-sm text-gray-600 dark:text-gray-300">
+                                Use code <span className="font-bold text-black dark:text-white">{bestOffer.code}</span> for an extra {bestOffer.percentage}% off
+                                {bestOffer.minOrderValue > 0 ? ` on orders above ₹${bestOffer.minOrderValue}` : ''}
+                            </p>
                         </div>
                     )}
 

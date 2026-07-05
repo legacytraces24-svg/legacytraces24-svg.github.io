@@ -142,9 +142,9 @@ export const fetchAdminOrders = async (idToken) => {
     return data.orders || [];
 };
 
-// Admin only — update order status and/or tracking ID and/or shipping company.
-export const updateOrderStatus = async (idToken, orderId, status, trackingId, shippingCompany) =>
-    post('updateStatus', { idToken, orderId, status, trackingId, shippingCompany });
+// Admin only — update order status, tracking ID, shipping company, and/or dates.
+export const updateOrderStatus = async (idToken, orderId, status, trackingId, shippingCompany, shippedAt, deliveryEta, deliveredAt) =>
+    post('updateStatus', { idToken, orderId, status, trackingId, shippingCompany, shippedAt, deliveryEta, deliveredAt });
 
 // ── Addresses ────────────────────────────────────────────────────────────────
 
@@ -215,4 +215,9 @@ export const confirmCustomOrder = ({ idToken, customOrderId, name, mobile, addre
 // Returns {success, payment_session_id, order_id, amount} or {error}.
 export const initCustomOrderPayment = ({ idToken, customOrderId, name, mobile, address, pincode }) =>
     post('initCustomOrderPayment', { idToken, customOrderId, name, mobile, address, pincode });
+
+// COD advance for a custom order: charges a fixed ₹100 via Cashfree; the rest
+// (the full quoted price) is collected on delivery — mirrors initCodPayment.
+export const initCustomOrderCodPayment = ({ idToken, customOrderId, name, mobile, address, pincode }) =>
+    post('initCustomOrderCodPayment', { idToken, customOrderId, name, mobile, address, pincode });
 

@@ -516,7 +516,7 @@ export default function Customize() {
                                 bgcolor: c.hex, border: '2px solid',
                                 borderColor: color === c.id ? 'primary.main' : 'grey.300',
                                 transform: color === c.id ? 'scale(1.12)' : 'none',
-                                boxShadow: color === c.id ? '0 0 0 3px rgba(101,163,13,0.25)' : 'none',
+                                boxShadow: color === c.id ? '0 0 0 3px rgba(0,230,118,0.25)' : 'none',
                                 transition: 'all .15s',
                             }}
                         />
@@ -563,7 +563,7 @@ export default function Customize() {
             {/* ── Add text input ── */}
             <Paper variant="outlined" sx={{ p: 1.5, borderColor: 'grey.200', bgcolor: '#ffffff' }}>
                 <Typography variant="body2" sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
-                    <Type size={14} color="#65A30D" /> Add Text to Design
+                    <Type size={14} color="#00e676" /> Add Text to Design
                 </Typography>
                 <TextField
                     value={textInput}
@@ -661,7 +661,7 @@ export default function Customize() {
                         '&:hover': { bgcolor: 'grey.200', borderColor: 'primary.main' },
                     }}
                 >
-                    <Upload size={20} color="#65A30D" />
+                    <Upload size={20} color="#00e676" />
                     <Typography variant="body2" sx={{ fontWeight: 600 }}>Choose file</Typography>
                     <Typography variant="caption" sx={{ color: 'grey.500' }}>PNG, JPG, SVG</Typography>
                     <input type="file" accept="image/*" hidden onChange={handleImageUpload} />
@@ -747,8 +747,8 @@ export default function Customize() {
             <ThemeProvider theme={customizeTheme}>
             <div className="min-h-[60vh] bg-gray-50 flex items-center justify-center p-4">
                 <Paper variant="outlined" sx={{ maxWidth: 384, width: '100%', p: 4, textAlign: 'center', borderColor: 'grey.200', bgcolor: '#ffffff' }}>
-                    <Box sx={{ width: 56, height: 56, bgcolor: 'rgba(101,163,13,0.15)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
-                        <CheckCircle size={28} color="#65A30D" />
+                    <Box sx={{ width: 56, height: 56, bgcolor: 'rgba(0,230,118,0.15)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                        <CheckCircle size={28} color="#00e676" />
                     </Box>
                     <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>Quote Submitted!</Typography>
                     {submittedId && <Typography variant="caption" sx={{ color: 'grey.500', display: 'block', mb: 1 }}>Order #{submittedId}</Typography>}

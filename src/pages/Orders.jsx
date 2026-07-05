@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useUser } from '../context/UserContext';
-import { fetchMyOrders, getMyCustomOrders, postComment, initCustomOrderPayment, checkPaymentStatus, fetchUserDetails } from '../api/api';
+import { fetchMyOrders, getMyCustomOrders, postComment } from '../api/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import {
@@ -30,27 +30,9 @@ const customStatusConfig = {
     'Cancelled':     { color: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',             icon: <AlertCircle size={12} /> },
 };
 
-const CustomOrderCard = ({ order, user, savedAddresses, paying, payError, onAcceptPay, onOpenForm, onViewDetails }) => {
+const CustomOrderCard = ({ order, onViewDetails }) => {
     const cfg = customStatusConfig[order.status] || customStatusConfig['Pending Quote'];
-    const [showForm, setShowForm] = useState(false);
-    const [form, setForm] = useState({ name: user?.name || '', mobile: user?.phone || '', address: '', pincode: '' });
-    const [selectedAddressId, setSelectedAddressId] = useState(null);
-    const [showManualAddress, setShowManualAddress] = useState(false);
     const canAccept = order.status === 'Quoted' && order.quoted_price;
-
-    // Prefill the default (or first) saved address the first time the form opens
-    useEffect(() => {
-        if (!showForm || savedAddresses.length === 0 || selectedAddressId) return;
-        const def = savedAddresses.find(a => a.is_default) || savedAddresses[0];
-        setSelectedAddressId(def.id);
-        setForm(p => ({ ...p, address: def.address, pincode: def.pincode }));
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [showForm, savedAddresses]);
-
-    const handleSubmit = (e) => {
-        e.preventDefault();
-        onAcceptPay(order, form);
-    };
 
     return (
         <motion.div
@@ -75,7 +57,7 @@ const CustomOrderCard = ({ order, user, savedAddresses, paying, payError, onAcce
             {order.status === 'Pending Quote' && (
                 <p className="text-xs text-gray-500 dark:text-gray-400">We'll send you a price quote soon.</p>
             )}
-            {order.status === 'Quoted' && !showForm && (
+            {order.status === 'Quoted' && (
                 <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Quote ready — accept below to checkout and pay.</p>
             )}
             {order.confirmed_order_id && (
@@ -87,141 +69,13 @@ const CustomOrderCard = ({ order, user, savedAddresses, paying, payError, onAcce
                 </button>
             )}
 
-            {canAccept && !showForm && (
-                <button
-                    onClick={() => { onOpenForm(); setShowForm(true); }}
-                    className="mt-3 w-full bg-primary text-black font-bold py-2.5 rounded-xl hover:brightness-90 transition-all text-sm"
+            {canAccept && (
+                <Link
+                    to={`/custom-checkout/${order.id}`}
+                    className="mt-3 block w-full text-center bg-primary text-black font-bold py-2.5 rounded-xl hover:brightness-90 transition-all text-sm"
                 >
                     Accept &amp; Pay ₹{Number(order.quoted_price).toLocaleString('en-IN')}
-                </button>
-            )}
-
-            {canAccept && showForm && (
-                <form onSubmit={handleSubmit} className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800 space-y-3">
-                    <input
-                        required
-                        placeholder="Full Name"
-                        value={form.name}
-                        onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
-                        className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    />
-                    <div className="relative">
-                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-medium text-sm">+91</span>
-                        <input
-                            required
-                            type="tel"
-                            placeholder="10-digit Mobile Number"
-                            value={form.mobile}
-                            onChange={e => {
-                                const v = e.target.value.replace(/\D/g, '');
-                                if (v.length <= 10) setForm(p => ({ ...p, mobile: v }));
-                            }}
-                            className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl py-2.5 pl-12 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-                        />
-                    </div>
-
-                    {/* Address: saved-address picker, same pattern as regular checkout */}
-                    {savedAddresses.length > 0 && !showManualAddress ? (
-                        <div>
-                            <label className="block text-xs font-medium text-gray-500 mb-1">Delivery Address</label>
-                            <div className="space-y-2">
-                                {savedAddresses.map(addr => (
-                                    <label
-                                        key={addr.id}
-                                        className={`flex items-start gap-2 p-2.5 rounded-xl border cursor-pointer transition-colors ${
-                                            selectedAddressId === addr.id
-                                                ? 'border-primary bg-primary/5 dark:bg-primary/10'
-                                                : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
-                                        }`}
-                                    >
-                                        <input
-                                            type="radio"
-                                            name={`savedAddress-${order.id}`}
-                                            checked={selectedAddressId === addr.id}
-                                            onChange={() => {
-                                                setSelectedAddressId(addr.id);
-                                                setForm(p => ({ ...p, address: addr.address, pincode: addr.pincode }));
-                                            }}
-                                            className="mt-0.5 accent-primary"
-                                        />
-                                        <div className="min-w-0">
-                                            <div className="flex items-center gap-1.5 mb-0.5">
-                                                <span className="text-xs font-semibold">{addr.label}</span>
-                                                {addr.is_default ? (
-                                                    <span className="text-[10px] bg-primary/20 text-primary font-semibold px-1.5 py-0.5 rounded-full">Default</span>
-                                                ) : null}
-                                            </div>
-                                            <p className="text-xs text-gray-600 dark:text-gray-400 leading-snug">{addr.address}</p>
-                                            <p className="text-[11px] text-gray-500 mt-0.5">Pincode: {addr.pincode}</p>
-                                        </div>
-                                    </label>
-                                ))}
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => { setShowManualAddress(true); setForm(p => ({ ...p, address: '', pincode: '' })); }}
-                                className="mt-2 text-xs text-primary font-semibold hover:underline"
-                            >
-                                + Add a new address
-                            </button>
-                        </div>
-                    ) : (
-                        <>
-                            {savedAddresses.length > 0 && showManualAddress && (
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setShowManualAddress(false);
-                                        const sel = savedAddresses.find(a => a.id === selectedAddressId) || savedAddresses[0];
-                                        if (sel) setForm(p => ({ ...p, address: sel.address, pincode: sel.pincode }));
-                                    }}
-                                    className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 font-medium"
-                                >
-                                    ← Back to saved addresses
-                                </button>
-                            )}
-                            <textarea
-                                required
-                                placeholder="Complete Address"
-                                rows={2}
-                                value={form.address}
-                                onChange={e => setForm(p => ({ ...p, address: e.target.value }))}
-                                className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
-                            />
-                            <input
-                                required
-                                placeholder="6-digit Pincode"
-                                value={form.pincode}
-                                onChange={e => {
-                                    const v = e.target.value.replace(/\D/g, '');
-                                    if (v.length <= 6) setForm(p => ({ ...p, pincode: v }));
-                                }}
-                                className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-                            />
-                        </>
-                    )}
-
-                    {payError && <p className="text-red-500 text-xs">{payError}</p>}
-                    <div className="flex gap-2">
-                        <button
-                            type="button"
-                            onClick={() => setShowForm(false)}
-                            disabled={paying}
-                            className="px-4 py-2.5 rounded-xl text-sm font-bold bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={paying || form.mobile.length !== 10 || form.pincode.length !== 6 || !form.address.trim()}
-                            className="flex-1 bg-primary text-black font-bold py-2.5 rounded-xl text-sm hover:brightness-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                        >
-                            {paying ? (
-                                <><div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> Processing…</>
-                            ) : `Pay ₹${Number(order.quoted_price).toLocaleString('en-IN')} Now`}
-                        </button>
-                    </div>
-                </form>
+                </Link>
             )}
         </motion.div>
     );
@@ -371,95 +225,6 @@ const Orders = () => {
         const stored = localStorage.getItem('submittedFeedback');
         return stored ? JSON.parse(stored) : [];
     });
-
-    // Accept & Pay (custom orders) state
-    const [cashfree, setCashfree] = useState(null);
-    const [payingCustomId, setPayingCustomId] = useState(null);
-    const [customPayError, setCustomPayError] = useState('');
-    const [customPayErrorId, setCustomPayErrorId] = useState(null); // which order the error belongs to
-    const [customOrderPaid, setCustomOrderPaid] = useState(false);
-    const [savedAddresses, setSavedAddresses] = useState([]);
-
-    // Preload Cashfree SDK so checkout() runs without an async gap after the
-    // user's tap (keeps the modal from being blocked on mobile).
-    useEffect(() => {
-        import('@cashfreepayments/cashfree-js')
-            .then(({ load }) => load({ mode: import.meta.env.VITE_CASHFREE_ENV || 'sandbox' }))
-            .then(cf => setCashfree(cf))
-            .catch(() => {});
-    }, []);
-
-    // Saved addresses power the Accept & Pay address picker (same UX as checkout)
-    useEffect(() => {
-        if (!user?.idToken) return;
-        fetchUserDetails(user.idToken)
-            .then(customer => setSavedAddresses(customer?.addresses || []))
-            .catch(() => {});
-    }, [user?.idToken]);
-
-    const reloadCustomOrders = async () => {
-        if (!user?.idToken) return;
-        try {
-            const res = await getMyCustomOrders(user.idToken);
-            setCustomOrders(res.orders || []);
-        } catch { /* silent */ }
-    };
-
-    const handleAcceptPay = async (order, formData) => {
-        if (!cashfree) {
-            setCustomPayError('Payment system is not ready. Please refresh and try again.');
-            setCustomPayErrorId(order.id);
-            return;
-        }
-        setPayingCustomId(order.id);
-        setCustomPayError('');
-        setCustomPayErrorId(null);
-        try {
-            const result = await initCustomOrderPayment({
-                idToken:       user.idToken,
-                customOrderId: order.id,
-                name:          formData.name,
-                mobile:        formData.mobile,
-                address:       formData.address,
-                pincode:       formData.pincode,
-            });
-            if (!result.success || !result.payment_session_id) {
-                setCustomPayError(result.error || 'Payment initialisation failed. Please try again.');
-                setCustomPayErrorId(order.id);
-                return;
-            }
-
-            await cashfree.checkout({
-                paymentSessionId: result.payment_session_id,
-                redirectTarget:   '_modal',
-            });
-
-            // Cashfree JS SDK v1 always resolves checkout() regardless of outcome —
-            // always verify the real status via the backend.
-            const statusRes = await checkPaymentStatus({
-                idToken: user.idToken,
-                orderId: result.order_id,
-            });
-
-            if (statusRes?.status === 'SUCCESS') {
-                setCustomOrderPaid(true);
-                await reloadCustomOrders();
-                // A confirmed order now exists too
-                if (user?.idToken) fetchMyOrders(user.idToken).then(setOrders).catch(() => {});
-            } else if (statusRes?.status === 'FAILED') {
-                setCustomPayError('Payment was declined or cancelled. Please try a different method.');
-                setCustomPayErrorId(order.id);
-            } else {
-                setCustomPayError('Payment was cancelled. You can try again anytime.');
-                setCustomPayErrorId(order.id);
-            }
-        } catch {
-            setCustomPayError('Unable to process payment right now. Please refresh and try again.');
-            setCustomPayErrorId(order.id);
-        } finally {
-            setPayingCustomId(null);
-        }
-    };
 
     // Cashfree redirect handler — Cashfree appends ?order_status=PAID|CANCELLED|ACTIVE
     // to return_url after redirect-based payments (net banking, some UPI apps).
@@ -631,20 +396,6 @@ const Orders = () => {
                 </motion.div>
             )}
 
-            {customOrderPaid && (
-                <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="flex items-center gap-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-2xl px-5 py-4 text-green-700 dark:text-green-300"
-                >
-                    <CheckCircle2 size={20} className="shrink-0" />
-                    <div>
-                        <p className="font-bold">Payment successful — custom order confirmed!</p>
-                        <p className="text-sm opacity-80">Check the Orders tab for tracking updates.</p>
-                    </div>
-                </motion.div>
-            )}
-
             {/* Tab Switcher */}
             <div className="flex gap-1 my-6 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl w-fit">
                 <button
@@ -732,12 +483,6 @@ const Orders = () => {
                             <CustomOrderCard
                                 key={order.id}
                                 order={order}
-                                user={user}
-                                savedAddresses={savedAddresses}
-                                paying={payingCustomId === order.id}
-                                payError={customPayErrorId === order.id ? customPayError : ''}
-                                onOpenForm={() => { setCustomPayError(''); setCustomPayErrorId(null); }}
-                                onAcceptPay={handleAcceptPay}
                                 onViewDetails={() => {
                                     const linked = orders.find(o => o.id === order.confirmed_order_id);
                                     if (linked) setSelectedOrder(linked);

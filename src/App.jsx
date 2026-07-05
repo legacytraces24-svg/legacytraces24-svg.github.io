@@ -18,6 +18,7 @@ const About          = lazy(() => import('./pages/About'));
 const Contact        = lazy(() => import('./pages/Contact'));
 const ShippingPolicy = lazy(() => import('./pages/ShippingPolicy'));
 const Checkout       = lazy(() => import('./pages/Checkout'));
+const CustomCheckout = lazy(() => import('./pages/CustomCheckout'));
 const Profile        = lazy(() => import('./pages/Profile'));
 const Orders         = lazy(() => import('./pages/Orders'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
@@ -100,6 +101,7 @@ function App() {
             <Route path="/favorites" element={<Favorites />} />
             <Route path="/cart" element={<Cart />} />
             <Route path="/checkout" element={<Checkout />} />
+            <Route path="/custom-checkout/:customOrderId" element={<CustomCheckout />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/orders" element={<Orders />} />
             <Route path="/admin" element={<AdminDashboard />} />

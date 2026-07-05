@@ -305,6 +305,24 @@ const Checkout = () => {
         }
     };
 
+    // Cashfree's modal can show the user a success screen slightly before its
+    // own backend finalises order_status and before the webhook fires — a
+    // single immediate status check can still read PENDING/ACTIVE even though
+    // the payment genuinely succeeded, which we'd otherwise wrongly report as
+    // "cancelled". Poll briefly instead of checking only once.
+    const pollPaymentStatus = async (orderId, attempts = 6, delayMs = 2000) => {
+        for (let i = 0; i < attempts; i++) {
+            const statusRes = await checkPaymentStatus({ idToken: user.idToken, orderId });
+            if (statusRes?.status === 'SUCCESS' || statusRes?.status === 'FAILED') {
+                return statusRes;
+            }
+            if (i < attempts - 1) {
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
+        }
+        return { status: 'PENDING' };
+    };
+
     const handlePayNow = async () => {
         if (!cashfree) {
             setPayError('Payment system is not ready. Please refresh and try again.');
@@ -354,10 +372,9 @@ const Checkout = () => {
             // Modal closed (payment done, cancelled, or failed).
             // Verify real status via backend — backend calls Cashfree's GET /orders
             // API directly so we get the answer even before the webhook fires.
-            const statusRes = await checkPaymentStatus({
-                idToken:  user.idToken,
-                orderId:  result.order_id,
-            });
+            // Poll briefly rather than checking once, to ride out the gap between
+            // the modal closing and Cashfree/the webhook finalising the status.
+            const statusRes = await pollPaymentStatus(result.order_id);
 
             if (statusRes?.status === 'SUCCESS') {
                 clearCart();
@@ -365,7 +382,7 @@ const Checkout = () => {
             } else if (statusRes?.status === 'FAILED') {
                 setPayError('Payment was declined or cancelled. Please try a different method.');
             } else {
-                // PENDING — modal was closed before payment completed
+                // Still not confirmed after polling — modal was likely closed before completion
                 setPayError('Payment was cancelled. You can try again anytime.');
             }
         } catch {
@@ -418,10 +435,7 @@ const Checkout = () => {
                 redirectTarget:   '_modal',
             });
 
-            const statusRes = await checkPaymentStatus({
-                idToken:  user.idToken,
-                orderId:  result.order_id,
-            });
+            const statusRes = await pollPaymentStatus(result.order_id);
 
             if (statusRes?.status === 'SUCCESS') {
                 clearCart();
@@ -882,8 +896,8 @@ const Checkout = () => {
                                             <span className="font-bold text-black dark:text-white">₹{COD_ADVANCE_AMOUNT}</span>
                                         </div>
                                         <div className="flex justify-between">
-                                            <span>Balance due on delivery</span>
-                                            <span className="font-bold text-black dark:text-white">₹{(finalTotal - COD_ADVANCE_AMOUNT).toFixed(2)}</span>
+                                            <span>Due on delivery (order total)</span>
+                                            <span className="font-bold text-black dark:text-white">₹{finalTotal.toFixed(2)}</span>
                                         </div>
                                     </div>
                                 )}
@@ -908,7 +922,7 @@ const Checkout = () => {
                             {isCodAvailable && (
                                 <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 p-3 rounded-xl text-sm flex items-start gap-2">
                                     <span className="text-lg leading-none mt-0.5">ℹ️</span>
-                                    <p><span className="font-semibold">COD Notice:</span> Cash on Delivery orders require a ₹{COD_ADVANCE_AMOUNT} advance paid online now (via Cashfree) to confirm your order. The remaining balance is collected on delivery.</p>
+                                    <p><span className="font-semibold">COD Notice:</span> Cash on Delivery orders require a ₹{COD_ADVANCE_AMOUNT} advance paid online now (via Cashfree) to confirm your order. The full order total is collected separately on delivery.</p>
                                 </div>
                             )}
 

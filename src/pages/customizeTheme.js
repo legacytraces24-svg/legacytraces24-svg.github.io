@@ -1,12 +1,12 @@
 import { createTheme } from '@mui/material/styles';
 
 // Scoped to the Customize page only — rest of the app stays Tailwind.
-// Mirrors the site's brand color (tailwind.config.js `primary: #65A30D`) and fonts,
+// Mirrors the site's brand color (tailwind.config.js `primary: #00e676`) and fonts,
 // light-mode base to match the editor's light background.
 const customizeTheme = createTheme({
     palette: {
         mode: 'light',
-        primary:   { main: '#65A30D', contrastText: '#000000' },
+        primary:   { main: '#00e676', contrastText: '#000000' },
         secondary: { main: '#1565c0' },
         background: {
             default: '#f9fafb', // gray-50

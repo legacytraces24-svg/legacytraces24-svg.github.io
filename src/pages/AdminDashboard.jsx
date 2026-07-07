@@ -9,8 +9,9 @@ import {
     Package, DollarSign, ShoppingCart,
     CreditCard, Truck, RefreshCcw, CheckCircle, Shirt, Eye, X,
     ChevronUp, ChevronDown, ChevronsUpDown, Search, ChevronLeft, ChevronRight,
-    MessageCircle
+    MessageCircle, Printer, FileText, FileType
 } from 'lucide-react';
+import { SENDER, exportLabelsAsPdf, exportLabelsAsWord } from '../utils/shippingLabels';
 
 // Indian 10-digit mobile → wa.me link (backend validates mobile as ^\d{10}$)
 const whatsappLink = (mobile) => `https://wa.me/91${String(mobile || '').replace(/\D/g, '')}`;
@@ -72,6 +73,8 @@ const AdminDashboard = () => {
     const [sortDir,       setSortDir]       = useState('desc');
     const [page,          setPage]          = useState(1);
     const [pageSize,      setPageSize]      = useState(20);
+    const [showExportMenu, setShowExportMenu] = useState(false);
+    const [exporting,      setExporting]      = useState(false);
 
     // Expandable row detail (address, product list, tracking/shipping edit)
     const [expandedOrderId,  setExpandedOrderId]  = useState(null);
@@ -479,7 +482,86 @@ const AdminDashboard = () => {
                                                 <X size={12} /> Clear
                                             </button>
                                         )}
+                                        <div className="relative">
+                                            <button
+                                                onClick={() => setShowExportMenu(o => !o)}
+                                                disabled={filtered.length === 0 || exporting}
+                                                className="text-xs font-semibold text-primary hover:brightness-90 flex items-center gap-1 px-2 py-1.5 border border-primary/40 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
+                                                title="Export shipping address labels for the currently filtered orders"
+                                            >
+                                                <Printer size={12} /> Export Labels ({filtered.length}) <ChevronDown size={12} />
+                                            </button>
+                                            {showExportMenu && (
+                                                <>
+                                                    <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
+                                                    <div className="absolute right-0 mt-1 w-44 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 overflow-hidden">
+                                                        <button
+                                                            onClick={() => { setShowExportMenu(false); window.print(); }}
+                                                            className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                                                        >
+                                                            <Printer size={13} /> Print (Browser)
+                                                        </button>
+                                                        <button
+                                                            onClick={async () => { setShowExportMenu(false); setExporting(true); try { await exportLabelsAsPdf(filtered); } finally { setExporting(false); } }}
+                                                            className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 border-t border-gray-100 dark:border-gray-700"
+                                                        >
+                                                            <FileText size={13} /> Export as PDF
+                                                        </button>
+                                                        <button
+                                                            onClick={async () => { setShowExportMenu(false); setExporting(true); try { await exportLabelsAsWord(filtered); } finally { setExporting(false); } }}
+                                                            className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 border-t border-gray-100 dark:border-gray-700"
+                                                        >
+                                                            <FileType size={13} /> Export as Word
+                                                        </button>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
                                     </div>
+                                </div>
+
+                                {/* Print-only shipping labels — mirrors whatever the search/filter
+                                    controls above currently narrow `filtered` down to, so printing
+                                    a subset (e.g. only "Shipped" orders) just works. Hidden on
+                                    screen; the @media print rule below hides everything else and
+                                    shows only this. */}
+                                <style>{`
+                                    #print-labels { display: none; }
+                                    @media print {
+                                        body * { visibility: hidden; }
+                                        #print-labels, #print-labels * { visibility: visible; }
+                                        #print-labels { display: block; position: absolute; left: 0; top: 0; width: 100%; }
+                                    }
+                                `}</style>
+                                <div id="print-labels">
+                                    {filtered.map(order => (
+                                        <div
+                                            key={order.id}
+                                            style={{
+                                                display: 'flex', gap: '10mm',
+                                                padding: '3mm 2mm', borderBottom: '1px dashed #999',
+                                                fontSize: '10.5px', lineHeight: 1.35,
+                                                breakInside: 'avoid',
+                                            }}
+                                        >
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ fontWeight: 700 }}>FROM:</div>
+                                                <div style={{ fontWeight: 700 }}>{SENDER.name}</div>
+                                                {SENDER.addressLines.map((line, i) => (
+                                                    <div key={i} style={{ whiteSpace: 'nowrap' }}>{line}</div>
+                                                ))}
+                                                <div>☎ {SENDER.phone}</div>
+                                            </div>
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ fontWeight: 700 }}>TO:</div>
+                                                <div style={{ fontWeight: 700 }}>{order.Name || 'N/A'}</div>
+                                                {(order.Address || '').split(',').map(part => part.trim()).filter(Boolean).map((line, i) => (
+                                                    <div key={i}>{line}</div>
+                                                ))}
+                                                <div>☎ {order.Mobile || 'N/A'}</div>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
 
                                 <div className="overflow-x-auto">

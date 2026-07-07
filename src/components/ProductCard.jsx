@@ -10,7 +10,7 @@ const ProductCard = ({ product }) => {
     const favorite = isFavorite(product.ID);
 
     return (
-        <div className="group bg-white dark:bg-[#1e1e1e] rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-800 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:border-primary/40 relative h-full flex flex-col">
+        <div className="group bg-gray-50 dark:bg-[#1e1e1e] rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-800 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:border-primary/40 relative h-full flex flex-col">
             <button
                 onClick={(e) => {
                     e.preventDefault();
@@ -42,13 +42,18 @@ const ProductCard = ({ product }) => {
                     <h3 className="font-heading font-bold text-lg mb-2 truncate group-hover:text-primary transition-colors">{product.Name}</h3>
                 </Link>
 
-                <div className="flex items-center justify-between mt-auto mb-4">
+                <div className="mt-auto mb-4">
                     <div className="flex items-baseline gap-2">
                         <span className="font-bold text-lg">₹{product.Price}</span>
                         {product.MaxPrice > product.Price && (
                             <span className="text-sm text-gray-400 line-through">₹{product.MaxPrice}</span>
                         )}
                     </div>
+                    {product.MaxPrice > product.Price && (
+                        <p className="text-xs text-green-600 dark:text-green-400 font-semibold mt-0.5">
+                            You save ₹{(product.MaxPrice - product.Price).toFixed(0)}
+                        </p>
+                    )}
                 </div>
 
                 {/* Mobile View Product Button */}

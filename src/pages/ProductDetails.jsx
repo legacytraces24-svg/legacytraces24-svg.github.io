@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { fetchProductById, fetchProducts, fetchAvailableCoupons, getImageUrl } from '../api/api';
-import { ShoppingCart, Heart, Share2, Truck, Plus, Minus, Tag } from 'lucide-react';
+import { ShoppingCart, ShoppingBag, Heart, Share2, Truck, Plus, Minus, Tag } from 'lucide-react';
 import { useFavorites } from '../context/FavoritesContext';
 import { useCart } from '../context/CartContext';
 import { useUser } from '../context/UserContext';
@@ -14,6 +14,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const ProductDetails = () => {
     const { id } = useParams();
+    const navigate = useNavigate();
     const [product, setProduct] = useState(null);
     const [loading, setLoading] = useState(true);
     const [selectedSize, setSelectedSize] = useState('');
@@ -30,7 +31,7 @@ const ProductDetails = () => {
     const [loadError, setLoadError] = useState(false);
     const [offers, setOffers] = useState([]);
     const { isFavorite, toggleFavorite } = useFavorites();
-    const { addToCart } = useCart();
+    const { addToCart, cartItems } = useCart();
     const { user } = useUser();
 
     const decreaseQty = () => setQuantity(q => Math.max(1, q - 1));
@@ -356,6 +357,18 @@ const ProductDetails = () => {
                                     }`}
                             >
                                 <ShoppingCart size={18} /> {selectedSize ? 'ADD TO CART' : 'SELECT SIZE'}
+                            </button>
+                            <button
+                                disabled={cartItems.length === 0}
+                                onClick={() => navigate('/cart')}
+                                title={cartItems.length === 0 ? 'Your cart is empty' : 'Go to Cart'}
+                                className={`w-12 h-12 md:w-14 md:h-14 rounded-xl border-2 flex items-center justify-center transition-colors shrink-0 ${
+                                    cartItems.length === 0
+                                        ? 'border-gray-200 dark:border-gray-700 text-gray-300 dark:text-gray-600 cursor-not-allowed opacity-50'
+                                        : 'border-gray-200 dark:border-gray-700 hover:border-primary hover:text-primary'
+                                }`}
+                            >
+                                <ShoppingBag size={20} />
                             </button>
                             <button
                                 onClick={() => toggleFavorite(product)}

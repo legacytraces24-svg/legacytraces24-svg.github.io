@@ -103,6 +103,7 @@ function App() {
             <Route path="/checkout/custom/:customOrderId" element={<Checkout />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/orders" element={<Orders />} />
+            <Route path="/orders/:orderId" element={<Orders />} />
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/about" element={<About />} />
             <Route path="/contact" element={<Contact />} />

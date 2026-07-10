@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useUser } from '../context/UserContext';
 import { fetchMyOrders, getMyCustomOrders, postComment } from '../api/api';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useLocation, useSearchParams, useParams } from 'react-router-dom';
 import {
     Package, ChevronRight, ChevronLeft, Star,
     ShieldCheck, MapPin, User, Check,
@@ -400,6 +400,7 @@ const Orders = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const [searchParams] = useSearchParams();
+    const { orderId } = useParams(); // present on /orders/:orderId — deep link to one order's details
     const orderPlaced = !!location.state?.orderPlaced;
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -442,6 +443,14 @@ const Orders = () => {
         };
         fetchOrders();
     }, [user?.idToken]);
+
+    // Deep link support: /orders/:orderId opens straight to that order's
+    // detail view once the list has loaded (e.g. from a WhatsApp tracking link).
+    useEffect(() => {
+        if (!orderId || orders.length === 0) return;
+        const match = orders.find(o => String(o.id) === String(orderId));
+        if (match) setSelectedOrder(match);
+    }, [orderId, orders]);
 
     useEffect(() => {
         if (!user?.idToken) return;
@@ -498,7 +507,7 @@ const Orders = () => {
         return (
             <div className="container mx-auto px-4 py-8 max-w-2xl min-h-[70vh]">
                 <button
-                    onClick={() => setSelectedOrder(null)}
+                    onClick={() => { setSelectedOrder(null); navigate('/orders'); }}
                     className="flex items-center gap-2 text-gray-500 hover:text-primary font-semibold mb-6 transition-colors"
                 >
                     <ChevronLeft size={20} /> Back to Orders
@@ -678,7 +687,7 @@ const Orders = () => {
                         <OrderCard
                             key={idx}
                             order={order}
-                            onClick={() => setSelectedOrder(order)}
+                            onClick={() => navigate(`/orders/${order.id}`)}
                         />
                     ))}
                 </div>
@@ -711,8 +720,8 @@ const Orders = () => {
                                 order={order}
                                 onClick={() => {
                                     if (order.confirmed_order_id) {
-                                        const linked = orders.find(o => o.id === order.confirmed_order_id);
-                                        if (linked) { setSelectedOrder(linked); return; }
+                                        navigate(`/orders/${order.confirmed_order_id}`);
+                                        return;
                                     }
                                     setSelectedCustomOrder(order);
                                 }}

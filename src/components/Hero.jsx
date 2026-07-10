@@ -4,24 +4,8 @@ import { Autoplay, Pagination, Navigation } from 'swiper/modules';
 import 'swiper/css';
 import 'swiper/css/pagination';
 import 'swiper/css/navigation';
-import { fetchBanners } from '../api/api';
+import { fetchBanners, getImageUrl } from '../api/api';
 import { useNavigate } from 'react-router-dom';
-import { containsCSSVariable } from 'framer-motion';
-
-// Helper to extract Drive ID and format URL safely
-const getBannerImageUrl = (imgStr) => {
-    if (!imgStr) return '';
-    let id = imgStr;
-    const match = imgStr.match(/[-\w]{25,}/);
-    if (match) {
-        id = match[0];
-    }
-    
-    // Temporarily log URL for debugging
-    const url = `https://lh3.googleusercontent.com/d/${id}`;
-    console.log('Generated Banner Image URL:', url);
-    return url;
-};
 
 // Matches the Tailwind `md` breakpoint used everywhere else in this app
 // (e.g. Hero's own h-[300px] md:h-[400px]) so "mobile" here means the same
@@ -150,8 +134,7 @@ const Hero = () => {
                             redirectPath = '/' + redirectPath; // Ensure it's a relative path just in case
                         }
 
-                        const imgUrl = getBannerImageUrl(banner.Image);
-                        console.log(imgUrl)
+                        const imgUrl = getImageUrl(banner.Image);
                         if (!imgUrl) return null;
 
                         return (
@@ -161,9 +144,9 @@ const Hero = () => {
                                     className="relative w-full h-full block cursor-pointer group/slide overflow-hidden"
                                 >
                                     {/* Image with preloading for first slide */}
-                                    <img 
-                                        src={'https://lh3.googleusercontent.com/d/' + banner.Image} 
-                                        alt={banner.Title || `Banner ${index + 1}`} 
+                                    <img
+                                        src={imgUrl}
+                                        alt={banner.Title || `Banner ${index + 1}`}
                                         className="w-full h-full object-cover transition-transform duration-[2000ms] ease-out group-hover/slide:scale-105" 
                                         loading={index === 0 ? "eager" : "lazy"} 
                                         fetchpriority={index === 0 ? "high" : "auto"}

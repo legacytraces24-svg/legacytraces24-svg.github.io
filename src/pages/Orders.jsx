@@ -13,6 +13,7 @@ import {
 const statusConfig = {
     'New':             { color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',       icon: <Clock size={12} />,        label: 'Confirmed' },
     'Processing':      { color: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300', icon: <Package size={12} />,      label: 'Under Packaging' },
+    'Ready to dispatch': { color: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300', icon: <Package size={12} />,    label: 'Ready to Dispatch' },
     'Shipped':         { color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300', icon: <Truck size={12} />,        label: 'Shipped' },
     'Delivered':       { color: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',    icon: <CheckCircle2 size={12} />, label: 'Delivered' },
     'Cancelled':       { color: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',            icon: <AlertCircle size={12} />,  label: 'Cancelled' },
@@ -366,6 +367,10 @@ const Orders = () => {
         const stored = localStorage.getItem('submittedFeedback');
         return stored ? JSON.parse(stored) : [];
     });
+    // Shows the "thanks" confirmation right after a submit in this session.
+    // On later visits alreadySubmitted is already true from localStorage, so
+    // the feedback block just stays hidden instead of re-showing this note.
+    const [feedbackJustSubmitted, setFeedbackJustSubmitted] = useState(false);
 
     // Cashfree redirect handler — Cashfree appends ?order_status=PAID|CANCELLED|ACTIVE
     // to return_url after redirect-based payments (net banking, some UPI apps).
@@ -396,6 +401,12 @@ const Orders = () => {
         };
         fetchOrders();
     }, [user?.idToken]);
+
+    // Reset the just-submitted flag whenever a different order is opened,
+    // so the confirmation note doesn't leak onto an unrelated order.
+    useEffect(() => {
+        setFeedbackJustSubmitted(false);
+    }, [selectedOrder?.id]);
 
     // Deep link support: /orders/:orderId opens straight to that order's
     // detail view once the list has loaded (e.g. from a WhatsApp tracking link).
@@ -440,6 +451,7 @@ const Orders = () => {
         const updated = [...submittedFeedback, orderId];
         setSubmittedFeedback(updated);
         localStorage.setItem('submittedFeedback', JSON.stringify(updated));
+        setFeedbackJustSubmitted(true);
     };
 
     if (!user) {
@@ -531,8 +543,9 @@ const Orders = () => {
                     <p className="text-sm leading-relaxed">{selectedOrder.Address || 'No address on file'}</p>
                 </div>
 
-                {/* Feedback — removed from the UI entirely once submitted, not just replaced with a thank-you note */}
-                {!alreadySubmitted && (
+                {/* Feedback — shows a thank-you note right after submitting, then
+                    stays hidden entirely on later visits to this order. */}
+                {!alreadySubmitted ? (
                     <div className="bg-white dark:bg-[#1e1e1e] rounded-2xl border border-gray-100 dark:border-gray-800 p-6">
                         <h2 className="font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider mb-4">Rate This Order</h2>
                         <FeedbackForm
@@ -540,7 +553,19 @@ const Orders = () => {
                             onSubmitted={() => handleFeedbackSubmitted(feedbackKey)}
                         />
                     </div>
-                )}
+                ) : feedbackJustSubmitted ? (
+                    <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="flex items-center gap-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-2xl px-5 py-4 text-green-700 dark:text-green-300"
+                    >
+                        <CheckCircle2 size={20} className="shrink-0" />
+                        <div>
+                            <p className="font-bold">Thanks for your feedback!</p>
+                            <p className="text-sm opacity-80">We appreciate you taking the time to rate this order.</p>
+                        </div>
+                    </motion.div>
+                ) : null}
             </div>
         );
     }
@@ -617,8 +642,8 @@ const Orders = () => {
                     <div className="w-20 h-20 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-5">
                         <Package size={36} className="text-gray-400" />
                     </div>
-                    <h2 className="text-2xl font-bold mb-2">No orders yet</h2>
-                    <p className="text-gray-500 dark:text-gray-400 mb-6">You haven't placed any orders with us yet.</p>
+                    <h2 className="text-2xl font-bold mb-2">No order has been placed yet</h2>
+                    <p className="text-gray-500 dark:text-gray-400 mb-6">Once you place an order, you'll be able to track it right here.</p>
                     <Link to="/shop" className="bg-primary text-black font-bold py-3 px-8 rounded-xl hover:brightness-90 transition-all">
                         Start Shopping
                     </Link>
@@ -648,7 +673,7 @@ const Orders = () => {
                         <div className="w-20 h-20 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-5">
                             <Shirt size={36} className="text-gray-400" />
                         </div>
-                        <h2 className="text-2xl font-bold mb-2">No custom designs yet</h2>
+                        <h2 className="text-2xl font-bold mb-2">No order has been placed yet</h2>
                         <p className="text-gray-500 dark:text-gray-400 mb-6">Design your own jersey or team order and track its status here.</p>
                         <Link to="/customize" className="bg-primary text-black font-bold py-3 px-8 rounded-xl hover:brightness-90 transition-all">
                             Start Designing

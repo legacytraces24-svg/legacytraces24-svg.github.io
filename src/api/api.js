@@ -156,8 +156,8 @@ export const fetchAdminOrders = async (idToken) => {
 };
 
 // Admin only — update order status, tracking ID, shipping company, and/or dates.
-export const updateOrderStatus = async (idToken, orderId, status, trackingId, shippingCompany, shippedAt, deliveryEta, deliveredAt) =>
-    post('updateStatus', { idToken, orderId, status, trackingId, shippingCompany, shippedAt, deliveryEta, deliveredAt });
+export const updateOrderStatus = async (idToken, orderId, status, trackingId, shippingCompany, shippedAt, deliveredAt) =>
+    post('updateStatus', { idToken, orderId, status, trackingId, shippingCompany, shippedAt, deliveredAt });
 
 // ── Addresses ────────────────────────────────────────────────────────────────
 

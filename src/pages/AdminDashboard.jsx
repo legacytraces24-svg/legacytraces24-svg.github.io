@@ -3,8 +3,11 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import {
     fetchAdminOrders, updateOrderStatus,
-    getAdminCustomOrders, updateCustomQuote
+    getAdminCustomOrders, updateCustomQuote,
+    saveCustomer
 } from '../api/api';
+import { GoogleLogin } from '@react-oauth/google';
+import { jwtDecode } from 'jwt-decode';
 import {
     Package, DollarSign, ShoppingCart,
     CreditCard, Truck, RefreshCcw, CheckCircle, Shirt, Eye, X,
@@ -29,7 +32,24 @@ const formatDate = (ts) => {
 // <input type="date"> expects, regardless of separator/time portion.
 const toDateInputValue = (ts) => (ts ? ts.slice(0, 10) : '');
 
-const ALL_ORDER_STATUSES = ['New', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Pending Payment', 'Payment Failed'];
+// Today as an <input type="date"> value.
+const todayDateInputValue = () => new Date().toISOString().slice(0, 10);
+
+// Adds `days` working days (Mon–Fri) to a 'YYYY-MM-DD' date string — mirrors
+// the backend's own projection (updateOrderStatus in backend.js) so the admin
+// sees the same computed delivery date immediately, before saving.
+const addWorkingDays = (dateStr, days) => {
+    const d = new Date(`${dateStr}T00:00:00Z`);
+    let added = 0;
+    while (added < days) {
+        d.setUTCDate(d.getUTCDate() + 1);
+        const day = d.getUTCDay(); // 0 = Sun, 6 = Sat
+        if (day !== 0 && day !== 6) added++;
+    }
+    return d.toISOString().slice(0, 10);
+};
+
+const ALL_ORDER_STATUSES = ['New', 'Processing', 'Ready to dispatch', 'Shipped', 'Delivered', 'Cancelled', 'Pending Payment', 'Payment Failed'];
 
 const CUSTOM_STATUSES = [
     'Pending Quote', 'Quoted', 'Accepted',
@@ -47,8 +67,15 @@ const CUSTOM_STATUS_COLOR = {
 };
 
 const AdminDashboard = () => {
-    const { user }   = useUser();
+    const { user, setUser } = useUser();
     const navigate   = useNavigate();
+
+    // Falls back to a visible Google Sign-In button if the silent One-Tap
+    // re-auth (SessionGate, App.jsx) hasn't restored idToken within a few
+    // seconds — otherwise a blocked/expired One-Tap leaves this page spinning
+    // forever with no way out except logging out and back in from Profile.
+    const [oneTapTimedOut, setOneTapTimedOut] = useState(false);
+    const [reAuthError,    setReAuthError]    = useState('');
 
     const [activeTab, setActiveTab]   = useState('orders');
     const [orders, setOrders]         = useState([]);
@@ -95,6 +122,33 @@ const AdminDashboard = () => {
         }
     }, [user, navigate]);
 
+    // Waiting-for-One-Tap is only ever "stuck" once — reset the timer if we
+    // leave that state (idToken arrives, or user disappears) so a later
+    // logout/login doesn't inherit a stale timeout.
+    useEffect(() => {
+        if (!(user?.email && !user?.idToken)) {
+            setOneTapTimedOut(false);
+            return;
+        }
+        const timer = setTimeout(() => setOneTapTimedOut(true), 4000);
+        return () => clearTimeout(timer);
+    }, [user?.email, user?.idToken]);
+
+    // Manual fallback for the hidden SessionGate One-Tap — a real, user-initiated
+    // Google sign-in always succeeds even when silent re-auth is blocked
+    // (third-party cookies disabled, One-Tap cooldown after a prior dismissal, etc).
+    const handleManualSignIn = async (credentialResponse) => {
+        try {
+            const idToken = credentialResponse.credential;
+            const decoded = jwtDecode(idToken);
+            const result = await saveCustomer({ idToken, email: decoded.email, name: decoded.name });
+            setUser({ idToken, isAdmin: result?.customer?.isAdmin ?? false });
+            setReAuthError('');
+        } catch {
+            setReAuthError('Sign-in failed. Please try again.');
+        }
+    };
+
     // ── Data loading ──────────────────────────────────────────────────────────
     // These effects (and every hook above) must run unconditionally on every
     // render — the "waiting for session restore" / "not admin" checks used to
@@ -119,7 +173,6 @@ const AdminDashboard = () => {
                         shippingCompany: o.ShippingCompany || '',
                         status:          o.OrderStatus || 'New',
                         shippedAt:       toDateInputValue(o.ShippedAt),
-                        deliveryEta:     toDateInputValue(o.DeliveryEta),
                         deliveredAt:     toDateInputValue(o.DeliveredAt),
                     };
                 });
@@ -160,9 +213,27 @@ const AdminDashboard = () => {
 
     // Still waiting for One-Tap to restore idToken + isAdmin
     if (user?.email && !user?.idToken) {
+        if (!oneTapTimedOut) {
+            return (
+                <div className="min-h-screen flex items-center justify-center">
+                    <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-primary"></div>
+                </div>
+            );
+        }
+        // Silent One-Tap didn't come back in time (cooldown, blocked
+        // third-party cookies, etc.) — offer a real sign-in right here
+        // instead of leaving the admin stuck until they log out/in elsewhere.
         return (
-            <div className="min-h-screen flex items-center justify-center">
-                <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-primary"></div>
+            <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4 text-center">
+                <p className="text-gray-500 dark:text-gray-400">Session restore is taking longer than expected. Please sign in again.</p>
+                <GoogleLogin
+                    onSuccess={handleManualSignIn}
+                    onError={() => setReAuthError('Google Sign-In failed.')}
+                    theme="filled_black"
+                    shape="pill"
+                    size="large"
+                />
+                {reAuthError && <p className="text-red-500 text-sm">{reAuthError}</p>}
             </div>
         );
     }
@@ -184,13 +255,30 @@ const AdminDashboard = () => {
     const prepaidOrders = orders.filter(o => o.COD !== 'Yes').length;
 
     const statusCount = {
-        New:       orders.filter(o => !o.OrderStatus || o.OrderStatus === 'New').length,
-        Shipped:   orders.filter(o => o.OrderStatus === 'Shipped').length,
-        Delivered: orders.filter(o => o.OrderStatus === 'Delivered').length,
+        New:             orders.filter(o => !o.OrderStatus || o.OrderStatus === 'New').length,
+        ReadyToDispatch: orders.filter(o => o.OrderStatus === 'Ready to dispatch').length,
+        Shipped:         orders.filter(o => o.OrderStatus === 'Shipped').length,
+        Delivered:       orders.filter(o => o.OrderStatus === 'Delivered').length,
     };
 
     const handleOrderEdit = (id, field, value) =>
-        setOrderEditState(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
+        setOrderEditState(prev => {
+            const current = prev[id] || {};
+            const next = { ...current, [field]: value };
+            // Live preview of the same auto-fill the backend applies on save:
+            // switching status to Shipped fills today's date into Shipped Date
+            // and projects Delivered Date as +2 working days from it — right
+            // in the form, without needing a save round-trip. Never overwrites
+            // a date the admin already set.
+            if (field === 'status' && value === 'Shipped') {
+                const shippedAt = current.shippedAt || todayDateInputValue();
+                next.shippedAt = shippedAt;
+                if (!current.deliveredAt) {
+                    next.deliveredAt = addWorkingDays(shippedAt, 2);
+                }
+            }
+            return { ...prev, [id]: next };
+        });
 
     // Saves status + shipping company + tracking ID + all three dates in one
     // call. Blocks the save client-side (mirroring the server-side guard) when
@@ -211,7 +299,6 @@ const AdminDashboard = () => {
                 e.trackingId || null,
                 e.shippingCompany || null,
                 toTs(e.shippedAt),
-                toTs(e.deliveryEta),
                 toTs(e.deliveredAt),
             );
             if (res?.error) {
@@ -228,10 +315,26 @@ const AdminDashboard = () => {
                         TrackingId:      fresh?.TrackingId      ?? e.trackingId,
                         ShippingCompany: fresh?.ShippingCompany ?? e.shippingCompany,
                         ShippedAt:       fresh?.ShippedAt       ?? o.ShippedAt,
-                        DeliveryEta:     fresh?.DeliveryEta     ?? o.DeliveryEta,
                         DeliveredAt:     fresh?.DeliveredAt     ?? o.DeliveredAt,
                     }
                     : o));
+
+                // Also sync the edit-form fields themselves — shippedAt/deliveredAt
+                // may have just been auto-filled server-side (e.g. delivered_at
+                // projected to +2 working days on the Shipped transition), and
+                // without this the date inputs keep showing blank/stale values
+                // until a full page reload even though D1 was updated correctly.
+                setOrderEditState(prev => ({
+                    ...prev,
+                    [orderId]: {
+                        ...prev[orderId],
+                        status:          fresh?.OrderStatus     ?? prev[orderId]?.status,
+                        trackingId:      fresh?.TrackingId      ?? prev[orderId]?.trackingId,
+                        shippingCompany: fresh?.ShippingCompany ?? prev[orderId]?.shippingCompany,
+                        shippedAt:       fresh?.ShippedAt   ? toDateInputValue(fresh.ShippedAt)   : prev[orderId]?.shippedAt,
+                        deliveredAt:     fresh?.DeliveredAt ? toDateInputValue(fresh.DeliveredAt) : prev[orderId]?.deliveredAt,
+                    },
+                }));
 
                 // notificationSent is null when this update didn't cross into
                 // Shipped/Delivered (no notification applicable); true/false
@@ -365,7 +468,7 @@ const AdminDashboard = () => {
                     </div>
 
                     {/* Status Breakdown */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
                         <div className="bg-yellow-50 dark:bg-yellow-900/20 p-6 rounded-xl border border-yellow-200 dark:border-yellow-800 flex items-center justify-between">
                             <div>
                                 <p className="text-yellow-600 dark:text-yellow-400 font-medium mb-1">New Orders</p>
@@ -373,6 +476,15 @@ const AdminDashboard = () => {
                             </div>
                             <div className="bg-yellow-100 dark:bg-yellow-800/50 p-3 rounded-full">
                                 <RefreshCcw className="text-yellow-600 dark:text-yellow-400" size={24} />
+                            </div>
+                        </div>
+                        <div className="bg-indigo-50 dark:bg-indigo-900/20 p-6 rounded-xl border border-indigo-200 dark:border-indigo-800 flex items-center justify-between">
+                            <div>
+                                <p className="text-indigo-600 dark:text-indigo-400 font-medium mb-1">Ready to Dispatch</p>
+                                <p className="text-2xl font-bold text-indigo-700 dark:text-indigo-300">{statusCount.ReadyToDispatch}</p>
+                            </div>
+                            <div className="bg-indigo-100 dark:bg-indigo-800/50 p-3 rounded-full">
+                                <Package className="text-indigo-600 dark:text-indigo-400" size={24} />
                             </div>
                         </div>
                         <div className="bg-blue-50 dark:bg-blue-900/20 p-6 rounded-xl border border-blue-200 dark:border-blue-800 flex items-center justify-between">
@@ -636,7 +748,7 @@ const AdminDashboard = () => {
                                                 const isCOD    = order.COD === 'Yes';
                                                 const status   = order.OrderStatus || 'New';
                                                 const isOpen   = expandedOrderId === id;
-                                                const edit     = orderEditState[id] || { trackingId: '', shippingCompany: '', status: 'New', shippedAt: '', deliveryEta: '', deliveredAt: '' };
+                                                const edit     = orderEditState[id] || { trackingId: '', shippingCompany: '', status: 'New', shippedAt: '', deliveredAt: '' };
                                                 const needsShippingFields = edit.status === 'Shipped' && (!edit.trackingId?.trim() || !edit.shippingCompany?.trim());
                                                 return (
                                                 <React.Fragment key={id}>
@@ -669,6 +781,7 @@ const AdminDashboard = () => {
                                                             <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${
                                                                 status === 'New' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' :
                                                                 status === 'Processing' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' :
+                                                                status === 'Ready to dispatch' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400' :
                                                                 status === 'Shipped' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
                                                                 status === 'Delivered' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
                                                                 status === 'Cancelled' || status === 'Payment Failed' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
@@ -738,15 +851,6 @@ const AdminDashboard = () => {
                                                                                     type="date"
                                                                                     value={edit.shippedAt}
                                                                                     onChange={ev => handleOrderEdit(id, 'shippedAt', ev.target.value)}
-                                                                                    className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                                                                                />
-                                                                            </div>
-                                                                            <div>
-                                                                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Delivery ETA</label>
-                                                                                <input
-                                                                                    type="date"
-                                                                                    value={edit.deliveryEta}
-                                                                                    onChange={ev => handleOrderEdit(id, 'deliveryEta', ev.target.value)}
                                                                                     className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                                                                                 />
                                                                             </div>
@@ -1032,7 +1136,7 @@ const AdminDashboard = () => {
                                                 {/* Shipping — only once the customer has paid and the custom
                                                     order became a real order (orders.id === confirmed_order_id) */}
                                                 {order.confirmed_order_id && (() => {
-                                                    const shipEdit = orderEditState[order.confirmed_order_id] || { trackingId: '', shippingCompany: '', status: 'New', shippedAt: '', deliveryEta: '', deliveredAt: '' };
+                                                    const shipEdit = orderEditState[order.confirmed_order_id] || { trackingId: '', shippingCompany: '', status: 'New', shippedAt: '', deliveredAt: '' };
                                                     const needsShippingFields = shipEdit.status === 'Shipped' && (!shipEdit.trackingId?.trim() || !shipEdit.shippingCompany?.trim());
                                                     return (
                                                         <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
@@ -1076,15 +1180,6 @@ const AdminDashboard = () => {
                                                                         type="date"
                                                                         value={shipEdit.shippedAt}
                                                                         onChange={ev => handleOrderEdit(order.confirmed_order_id, 'shippedAt', ev.target.value)}
-                                                                        className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                                                                    />
-                                                                </div>
-                                                                <div>
-                                                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Delivery ETA</label>
-                                                                    <input
-                                                                        type="date"
-                                                                        value={shipEdit.deliveryEta}
-                                                                        onChange={ev => handleOrderEdit(order.confirmed_order_id, 'deliveryEta', ev.target.value)}
                                                                         className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                                                                     />
                                                                 </div>

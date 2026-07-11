@@ -229,7 +229,7 @@ const Contact = () => {
                             {isSending ? (
                                 <>
                                     <div className="w-5 h-5 border-2 border-white/30 dark:border-black/30 border-t-white dark:border-t-black rounded-full animate-spin"></div>
-                                    PREPARING EMAIL...
+                                    SENDING...
                                 </>
                             ) : (
                                 <>

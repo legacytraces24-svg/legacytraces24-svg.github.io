@@ -170,7 +170,7 @@ const FeedbackSection = ({ productId }) => {
                     />
                     <input 
                         type="tel" 
-                        placeholder="Your Phone Number (optional)" 
+                        placeholder="Your WhatsApp Number (optional)"
                         value={phoneNo} 
                         onChange={(e) => setPhoneNo(e.target.value)} 
                         className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/20"

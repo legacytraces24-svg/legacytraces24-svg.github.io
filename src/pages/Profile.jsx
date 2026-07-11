@@ -93,7 +93,7 @@ const Profile = () => {
         setError('');
         setSuccessMsg('');
         const cleanPhone = formData.phone.replace(/\D/g, '');
-        if (cleanPhone.length !== 10) { setError('Phone number must be exactly 10 digits.'); return; }
+        if (cleanPhone.length !== 10) { setError('WhatsApp number must be exactly 10 digits.'); return; }
         if (!formData.name.trim())    { setError('Name cannot be empty.'); return; }
 
         setIsSaving(true);
@@ -299,7 +299,7 @@ const Profile = () => {
                         </div>
                         <div>
                             <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-                                <Phone size={16} /> Mobile Number
+                                <Phone size={16} /> WhatsApp Number
                             </label>
                             <div className="relative">
                                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-medium">+91</span>
@@ -310,7 +310,7 @@ const Profile = () => {
                                         const val = e.target.value.replace(/\D/g, '');
                                         if (val.length <= 10) setFormData(p => ({ ...p, phone: val }));
                                     }}
-                                    placeholder="10-digit mobile number"
+                                    placeholder="10-digit WhatsApp number"
                                     className="w-full bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-700 rounded-xl py-3 pl-14 pr-4 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
                                 />
                             </div>

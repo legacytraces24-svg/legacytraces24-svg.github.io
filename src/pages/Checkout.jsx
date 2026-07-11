@@ -240,7 +240,7 @@ const Checkout = () => {
         const e = {};
         if (!formData.fullName?.trim())                            e.fullName     = 'Full Name is required';
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email))  e.email        = 'Please enter a valid email address';
-        if (!/^\d{10}$/.test(formData.mobileNumber))              e.mobileNumber = 'Please enter a valid 10-digit mobile number';
+        if (!/^\d{10}$/.test(formData.mobileNumber))              e.mobileNumber = 'Please enter a valid 10-digit WhatsApp number';
         if (!formData.address?.trim())                            e.address      = 'Address is required';
         if (!/^\d{6}$/.test(formData.pincode))                   e.pincode      = 'Enter a valid 6-digit pincode';
         setErrors(e);
@@ -656,9 +656,9 @@ const Checkout = () => {
                                 </div>
                             </div>
 
-                            {/* Mobile */}
+                            {/* WhatsApp number */}
                             <div>
-                                <label className="block text-sm font-medium mb-1">Mobile Number</label>
+                                <label className="block text-sm font-medium mb-1">WhatsApp Number</label>
                                 <div className="relative">
                                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-medium">+91</span>
                                     <input

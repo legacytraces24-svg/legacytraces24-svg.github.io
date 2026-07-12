@@ -6,7 +6,7 @@ import { CheckCircle2, Tag, X } from 'lucide-react';
 import { GoogleLogin } from '@react-oauth/google';
 import { jwtDecode } from 'jwt-decode';
 import {
-    saveCustomer, updateCustomer, saveOrder,
+    saveCustomer, updateCustomer,
     fetchUserDetails, addAddress, initPayment, initCodPayment, checkPaymentStatus, validateCoupon, fetchAvailableCoupons,
     getMyCustomOrders, initCustomOrderPayment, initCustomOrderCodPayment,
 } from '../api/api';
@@ -40,7 +40,6 @@ const Checkout = () => {
 
     const [errors, setErrors]               = useState({});
     const [authError, setAuthError]         = useState('');
-    const [isPlacingOrder, setIsPlacingOrder]   = useState(false);
     const [isPayingOnline, setIsPayingOnline]   = useState(false);
     const [isPayingCod, setIsPayingCod]         = useState(false);
     const [payError, setPayError]               = useState('');
@@ -299,40 +298,6 @@ const Checkout = () => {
             setStep(3);
         } finally {
             setIsSavingDetails(false);
-        }
-    };
-
-    // Backend recomputes price from D1 — never trust client amount. This path is
-    // only used when COD isn't available for the pincode (no advance payment).
-    const handlePlaceOrder = async () => {
-        setIsPlacingOrder(true);
-        try {
-            const cart = cartItems.map(i => ({
-                productId: i.ID,
-                size:      i.size,
-                quantity:  i.quantity,
-            }));
-            const result = await saveOrder({
-                idToken:    user.idToken,
-                cart,
-                email:      formData.email,
-                name:       formData.fullName,
-                mobile:     formData.mobileNumber,
-                address:    formData.address,
-                pincode:    formData.pincode,
-                cod:        'No',
-                couponCode: appliedCoupon?.code || null,
-            });
-            if (!result.success) {
-                alert(result.error || 'Failed to place order. Please try again.');
-                return;
-            }
-            clearCart();
-            navigate('/orders', { state: { orderPlaced: true } });
-        } catch {
-            alert('Failed to place order. Please try again.');
-        } finally {
-            setIsPlacingOrder(false);
         }
     };
 
@@ -1019,14 +984,14 @@ const Checkout = () => {
                                 <button
                                     type="button"
                                     onClick={() => setStep(2)}
-                                    disabled={isPlacingOrder || isPayingOnline || isPayingCod}
+                                    disabled={isPayingOnline || isPayingCod}
                                     className="sm:w-auto px-6 py-4 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-bold rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-40"
                                 >
                                     EDIT
                                 </button>
                                 <button
                                     onClick={handlePayNow}
-                                    disabled={isPayingOnline || isPlacingOrder || isPayingCod || !user?.idToken}
+                                    disabled={isPayingOnline || isPayingCod || !user?.idToken}
                                     className="flex-1 py-4 bg-primary text-black font-bold rounded-xl hover:brightness-90 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {isPayingOnline ? (
@@ -1036,10 +1001,12 @@ const Checkout = () => {
                                         </>
                                     ) : `PAY ₹${finalTotal} ONLINE`}
                                 </button>
-                                {isCodAvailable ? (
+                                {/* COD advance is offered only inside Tamil Nadu (isCodAvailable).
+                                    Outside TN, the online button above is the only option. */}
+                                {isCodAvailable && (
                                     <button
                                         onClick={handleCodAdvancePayment}
-                                        disabled={isPlacingOrder || isPayingOnline || isPayingCod || !user?.idToken}
+                                        disabled={isPayingOnline || isPayingCod || !user?.idToken}
                                         className="flex-1 py-4 bg-gray-900 dark:bg-white text-white dark:text-black font-bold rounded-xl hover:opacity-80 transition-opacity flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         {isPayingCod ? (
@@ -1049,21 +1016,6 @@ const Checkout = () => {
                                             </>
                                         ) : `PAY ₹${COD_ADVANCE_AMOUNT} ADVANCE (COD)`}
                                     </button>
-                                ) : (
-                                    !isCustomMode && (
-                                        <button
-                                            onClick={handlePlaceOrder}
-                                            disabled={isPlacingOrder || isPayingOnline || !user?.idToken}
-                                            className="flex-1 py-4 bg-gray-900 dark:bg-white text-white dark:text-black font-bold rounded-xl hover:opacity-80 transition-opacity flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                                        >
-                                            {isPlacingOrder ? (
-                                                <>
-                                                    <div className="w-5 h-5 border-2 border-white dark:border-black border-t-transparent rounded-full animate-spin" />
-                                                    PLACING...
-                                                </>
-                                            ) : 'PLACE ORDER'}
-                                        </button>
-                                    )
                                 )}
                             </div>
                         </motion.div>

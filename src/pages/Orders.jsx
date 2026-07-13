@@ -372,6 +372,10 @@ const Orders = () => {
     // the feedback block just stays hidden instead of re-showing this note.
     const [feedbackJustSubmitted, setFeedbackJustSubmitted] = useState(false);
 
+    // Set when we return from a redirect-based payment marked PAID, so the poll
+    // below can refresh until the order flips from 'Pending Payment' to 'New'.
+    const [justPaidViaRedirect, setJustPaidViaRedirect] = useState(false);
+
     // Cashfree redirect handler — Cashfree appends ?order_status=PAID|CANCELLED|ACTIVE
     // to return_url after redirect-based payments (net banking, some UPI apps).
     useEffect(() => {
@@ -379,12 +383,31 @@ const Orders = () => {
         if (!cfStatus) return;
         if (cfStatus === 'PAID') {
             // Remove query params, show the success banner via router state
+            setJustPaidViaRedirect(true);
             navigate('/orders', { replace: true, state: { orderPlaced: true } });
         } else {
             // CANCELLED, ACTIVE (incomplete), EXPIRED — go back to checkout to retry
             navigate('/checkout', { replace: true });
         }
     }, [searchParams, navigate]);
+
+    // Redirect-based payments skip the checkout modal's own status polling, so a
+    // just-paid order may still be flipping from 'Pending Payment' to 'New'
+    // server-side (via the Cashfree webhook). Since pending orders are hidden from
+    // this list, silently re-fetch a few times so the confirmed order appears
+    // without a manual refresh — never leaving a paid customer staring at nothing.
+    useEffect(() => {
+        if (!justPaidViaRedirect || !user?.idToken) return;
+        let tries = 0;
+        const timer = setInterval(async () => {
+            try {
+                const data = await fetchMyOrders(user.idToken);
+                setOrders(data);
+            } catch { /* silent */ }
+            if (++tries >= 5) { clearInterval(timer); setJustPaidViaRedirect(false); }
+        }, 2500);
+        return () => clearInterval(timer);
+    }, [justPaidViaRedirect, user?.idToken]);
 
     useEffect(() => {
         if (!user?.idToken) return;

@@ -11,7 +11,7 @@ export const getImageUrl = (imageId) => {
 };
 
 // ── Shared fetch util ─────────────────────────────────────────────────────────
-
+//Post Call
 const post = async (type, body) => {
     const res = await fetch(`${API_URL}?type=${type}`, {
         method:  'POST',

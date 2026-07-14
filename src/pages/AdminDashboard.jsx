@@ -12,7 +12,7 @@ import {
     Package, DollarSign, ShoppingCart,
     CreditCard, Truck, RefreshCcw, CheckCircle, Shirt, Eye, X,
     ChevronUp, ChevronDown, ChevronsUpDown, Search, ChevronLeft, ChevronRight,
-    MessageCircle, Printer, FileText, FileType
+    MessageCircle, Printer, FileText, FileType, SlidersHorizontal, Plus
 } from 'lucide-react';
 import { SENDER, exportLabelsAsPdf, exportLabelsAsWord } from '../utils/shippingLabels';
 
@@ -50,6 +50,66 @@ const addWorkingDays = (dateStr, days) => {
 };
 
 const ALL_ORDER_STATUSES = ['New', 'Processing', 'Ready to dispatch', 'Shipped', 'Delivered', 'Cancelled', 'Pending Payment', 'Payment Failed'];
+
+// ── ServiceNow-style condition filter ─────────────────────────────────────────
+// Each filterable field declares its type; the operator list and value input
+// are derived from it. `get` normalizes the raw order-row value so conditions
+// compare against what the admin actually sees in the table (e.g. COD 'Yes'
+// reads as 'COD', a null status reads as 'New').
+const FILTER_FIELDS = {
+    id:              { label: 'Order ID',         type: 'number', get: o => Number(o.id) },
+    Name:            { label: 'Customer Name',    type: 'text',   get: o => o.Name || '' },
+    Email:           { label: 'Email',            type: 'text',   get: o => o.Email || '' },
+    Mobile:          { label: 'Mobile',           type: 'text',   get: o => String(o.Mobile || '') },
+    AmountPaid:      { label: 'Amount',           type: 'number', get: o => Number(o.AmountPaid || 0) },
+    OrderStatus:     { label: 'Status',           type: 'select', options: ALL_ORDER_STATUSES,  get: o => o.OrderStatus || 'New' },
+    COD:             { label: 'Payment Type',     type: 'select', options: ['COD', 'Prepaid'],  get: o => o.COD === 'Yes' ? 'COD' : 'Prepaid' },
+    TrackingId:      { label: 'Tracking ID',      type: 'text',   get: o => o.TrackingId || '' },
+    ShippingCompany: { label: 'Shipping Company', type: 'text',   get: o => o.ShippingCompany || '' },
+    CfOrderId:       { label: 'CF Order ID',      type: 'text',   get: o => o.CfOrderId || '' },
+};
+
+const OPERATORS_BY_TYPE = {
+    text:   ['contains', 'does not contain', 'is', 'is not', 'starts with', 'ends with', 'is empty', 'is not empty'],
+    number: ['=', '≠', '>', '≥', '<', '≤'],
+    select: ['is', 'is not'],
+};
+
+const NO_VALUE_OPERATORS = ['is empty', 'is not empty'];
+
+const evalCondition = (order, { field, operator, value }) => {
+    const def = FILTER_FIELDS[field];
+    if (!def) return true;
+    const raw = def.get(order);
+    if (def.type === 'number') {
+        const target = Number(value);
+        if (isNaN(target)) return true;
+        switch (operator) {
+            case '=': return raw === target;
+            case '≠': return raw !== target;
+            case '>': return raw > target;
+            case '≥': return raw >= target;
+            case '<': return raw < target;
+            case '≤': return raw <= target;
+            default:  return true;
+        }
+    }
+    const a = String(raw).toLowerCase();
+    const b = String(value ?? '').toLowerCase();
+    switch (operator) {
+        case 'contains':         return a.includes(b);
+        case 'does not contain': return !a.includes(b);
+        case 'is':               return a === b;
+        case 'is not':           return a !== b;
+        case 'starts with':      return a.startsWith(b);
+        case 'ends with':        return a.endsWith(b);
+        case 'is empty':         return a === '';
+        case 'is not empty':     return a !== '';
+        default:                 return true;
+    }
+};
+
+const DATE_FILTER_FIELDS = { CreatedAt: 'Created', ShippedAt: 'Shipped', DeliveredAt: 'Delivered' };
 
 const CUSTOM_STATUSES = [
     'Pending Quote', 'Quoted', 'Accepted',
@@ -96,6 +156,13 @@ const AdminDashboard = () => {
     const [searchMobile,  setSearchMobile]  = useState('');
     const [filterStatus,  setFilterStatus]  = useState('');
     const [filterType,    setFilterType]    = useState(''); // '' | 'COD' | 'Prepaid'
+    // Advanced (ServiceNow-style) condition builder + date range
+    const [showAdvanced,  setShowAdvanced]  = useState(false);
+    const [conditions,    setConditions]    = useState([]);      // [{ field, operator, value }]
+    const [conditionJoin, setConditionJoin] = useState('AND');   // 'AND' | 'OR'
+    const [dateField,     setDateField]     = useState('CreatedAt');
+    const [dateFrom,      setDateFrom]      = useState('');
+    const [dateTo,        setDateTo]        = useState('');
     const [sortCol,       setSortCol]       = useState('id');
     const [sortDir,       setSortDir]       = useState('desc');
     const [page,          setPage]          = useState(1);
@@ -242,13 +309,13 @@ const AdminDashboard = () => {
 
     // ── Regular orders ────────────────────────────────────────────────────────
 
-    // Revenue only counts orders that were actually confirmed — a "Pending
-    // Payment"/"Payment Failed"/"Cancelled" row's amount_paid was never really
-    // collected, even though it's set at order-creation time for later display.
-    const UNPAID_STATUSES = ['Pending Payment', 'Payment Failed', 'Cancelled'];
+    // Revenue only counts orders that actually went out the door — Shipped or
+    // Delivered. Earlier statuses (New/Processing/Ready to dispatch) may still
+    // be cancelled or refunded, so their amount_paid isn't realized revenue yet.
+    const REVENUE_STATUSES = ['Shipped', 'Delivered'];
     const totalOrders   = orders.length;
     const totalRevenue  = orders
-        .filter(o => !UNPAID_STATUSES.includes(o.OrderStatus || 'New'))
+        .filter(o => REVENUE_STATUSES.includes(o.OrderStatus))
         .reduce((s, o) => s + Number(o.AmountPaid || 0), 0);
     const totalItems    = orders.reduce((s, o) => s + Number(o.TotalTshirts || 0), 0);
     const codOrders     = orders.filter(o => o.COD === 'Yes').length;
@@ -474,6 +541,7 @@ const AdminDashboard = () => {
                                 <DollarSign className="text-primary" size={24} />
                             </div>
                             <p className="text-3xl font-bold text-primary">₹{totalRevenue.toLocaleString()}</p>
+                            <p className="text-xs text-gray-400 mt-1">Shipped + Delivered orders only</p>
                         </div>
                         <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
                             <div className="flex items-center justify-between mb-4">
@@ -537,6 +605,56 @@ const AdminDashboard = () => {
 
                     {/* Orders Table */}
                     {(() => {
+                        // A condition whose operator needs a value but has none typed yet is
+                        // incomplete — skip it so a half-built row doesn't blank out the table.
+                        const activeConditions = conditions.filter(c =>
+                            c.field && c.operator &&
+                            (NO_VALUE_OPERATORS.includes(c.operator) || String(c.value ?? '').trim() !== ''));
+                        const matchesConditions = (o) =>
+                            activeConditions.length === 0 ||
+                            (conditionJoin === 'AND'
+                                ? activeConditions.every(c => evalCondition(o, c))
+                                : activeConditions.some(c => evalCondition(o, c)));
+                        // D1 timestamps start with 'YYYY-MM-DD', so string comparison against
+                        // the <input type="date"> values is a correct date comparison.
+                        const matchesDateRange = (o) => {
+                            if (!dateFrom && !dateTo) return true;
+                            const d = (o[dateField] || '').slice(0, 10);
+                            if (!d) return false;
+                            if (dateFrom && d < dateFrom) return false;
+                            if (dateTo && d > dateTo) return false;
+                            return true;
+                        };
+
+                        const addCondition = () =>
+                            setConditions(prev => [...prev, { field: 'Name', operator: 'contains', value: '' }]);
+                        const updateCondition = (i, patch) => {
+                            setConditions(prev => prev.map((c, j) => {
+                                if (j !== i) return c;
+                                const next = { ...c, ...patch };
+                                // Switching field resets operator/value — the old ones may not
+                                // apply to the new field's type.
+                                if (patch.field && patch.field !== c.field) {
+                                    next.operator = OPERATORS_BY_TYPE[FILTER_FIELDS[patch.field].type][0];
+                                    next.value = '';
+                                }
+                                return next;
+                            }));
+                            setPage(1);
+                        };
+                        const removeCondition = (i) => {
+                            setConditions(prev => prev.filter((_, j) => j !== i));
+                            setPage(1);
+                        };
+                        const clearAllFilters = () => {
+                            setSearchId(''); setSearchName(''); setSearchMobile('');
+                            setFilterStatus(''); setFilterType('');
+                            setConditions([]); setDateFrom(''); setDateTo('');
+                            setPage(1);
+                        };
+                        const anyFilterActive = searchId || searchName || searchMobile || filterStatus ||
+                            filterType || conditions.length > 0 || dateFrom || dateTo;
+
                         // Derived filtered + sorted + paginated list (computed inline to access state)
                         const filtered = orders
                             .filter(o => !searchId   || String(o.id).includes(searchId.trim()))
@@ -544,6 +662,8 @@ const AdminDashboard = () => {
                             .filter(o => !searchMobile || String(o.Mobile || '').includes(searchMobile.trim()))
                             .filter(o => !filterStatus || (o.OrderStatus || 'New') === filterStatus)
                             .filter(o => !filterType  || (filterType === 'COD' ? o.COD === 'Yes' : o.COD !== 'Yes'))
+                            .filter(matchesConditions)
+                            .filter(matchesDateRange)
                             .sort((a, b) => {
                                 let av, bv;
                                 if (sortCol === 'id')     { av = a.id;           bv = b.id; }
@@ -644,9 +764,26 @@ const AdminDashboard = () => {
                                             <option value="COD">COD</option>
                                             <option value="Prepaid">Prepaid</option>
                                         </select>
-                                        {(searchId || searchName || searchMobile || filterStatus || filterType) && (
+                                        <button
+                                            onClick={() => setShowAdvanced(s => !s)}
+                                            className={`text-xs font-semibold flex items-center gap-1 px-2 py-1.5 border rounded-lg transition-colors ${
+                                                showAdvanced || activeConditions.length > 0 || dateFrom || dateTo
+                                                    ? 'text-primary border-primary/40 bg-primary/5'
+                                                    : 'text-gray-500 border-gray-200 dark:border-gray-700 hover:text-gray-700 dark:hover:text-gray-300'
+                                            }`}
+                                            title="Multi-field condition filters and date range"
+                                        >
+                                            <SlidersHorizontal size={12} /> Advanced
+                                            {(activeConditions.length > 0 || dateFrom || dateTo) && (
+                                                <span className="bg-primary text-black text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none">
+                                                    {activeConditions.length + ((dateFrom || dateTo) ? 1 : 0)}
+                                                </span>
+                                            )}
+                                            {showAdvanced ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                                        </button>
+                                        {anyFilterActive && (
                                             <button
-                                                onClick={() => { setSearchId(''); setSearchName(''); setSearchMobile(''); setFilterStatus(''); setFilterType(''); setPage(1); }}
+                                                onClick={clearAllFilters}
                                                 className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1 px-2 py-1.5 border border-red-200 dark:border-red-800 rounded-lg"
                                             >
                                                 <X size={12} /> Clear
@@ -688,6 +825,119 @@ const AdminDashboard = () => {
                                             )}
                                         </div>
                                     </div>
+
+                                    {/* Advanced condition builder + date range (ServiceNow-style) */}
+                                    {showAdvanced && (
+                                        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 p-3 space-y-2">
+                                            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-gray-500 dark:text-gray-400">
+                                                <span>Match</span>
+                                                <select
+                                                    value={conditionJoin}
+                                                    onChange={e => { setConditionJoin(e.target.value); setPage(1); }}
+                                                    className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded-lg px-2 py-1 focus:ring-primary focus:border-primary"
+                                                >
+                                                    <option value="AND">all (AND)</option>
+                                                    <option value="OR">any (OR)</option>
+                                                </select>
+                                                <span>of the following conditions:</span>
+                                            </div>
+
+                                            {conditions.map((c, i) => {
+                                                const def = FILTER_FIELDS[c.field];
+                                                return (
+                                                    <div key={i} className="flex flex-wrap items-center gap-2">
+                                                        <select
+                                                            value={c.field}
+                                                            onChange={ev => updateCondition(i, { field: ev.target.value })}
+                                                            className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded-lg px-2 py-1.5 focus:ring-primary focus:border-primary"
+                                                        >
+                                                            {Object.entries(FILTER_FIELDS).map(([k, f]) => (
+                                                                <option key={k} value={k}>{f.label}</option>
+                                                            ))}
+                                                        </select>
+                                                        <select
+                                                            value={c.operator}
+                                                            onChange={ev => updateCondition(i, { operator: ev.target.value })}
+                                                            className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded-lg px-2 py-1.5 focus:ring-primary focus:border-primary"
+                                                        >
+                                                            {OPERATORS_BY_TYPE[def.type].map(op => (
+                                                                <option key={op} value={op}>{op}</option>
+                                                            ))}
+                                                        </select>
+                                                        {!NO_VALUE_OPERATORS.includes(c.operator) && (
+                                                            def.type === 'select' ? (
+                                                                <select
+                                                                    value={c.value}
+                                                                    onChange={ev => updateCondition(i, { value: ev.target.value })}
+                                                                    className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded-lg px-2 py-1.5 focus:ring-primary focus:border-primary"
+                                                                >
+                                                                    <option value="">— select —</option>
+                                                                    {def.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                                                </select>
+                                                            ) : (
+                                                                <input
+                                                                    type={def.type === 'number' ? 'number' : 'text'}
+                                                                    value={c.value}
+                                                                    onChange={ev => updateCondition(i, { value: ev.target.value })}
+                                                                    placeholder="Value…"
+                                                                    className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded-lg px-2 py-1.5 w-40 focus:outline-none focus:ring-1 focus:ring-primary"
+                                                                />
+                                                            )
+                                                        )}
+                                                        <button
+                                                            onClick={() => removeCondition(i)}
+                                                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                                            title="Remove condition"
+                                                        >
+                                                            <X size={13} />
+                                                        </button>
+                                                    </div>
+                                                );
+                                            })}
+
+                                            <button
+                                                onClick={addCondition}
+                                                className="text-xs font-semibold text-primary hover:brightness-90 flex items-center gap-1"
+                                            >
+                                                <Plus size={13} /> Add condition
+                                            </button>
+
+                                            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                                                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">Date range:</span>
+                                                <select
+                                                    value={dateField}
+                                                    onChange={e => { setDateField(e.target.value); setPage(1); }}
+                                                    className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded-lg px-2 py-1.5 focus:ring-primary focus:border-primary"
+                                                >
+                                                    {Object.entries(DATE_FILTER_FIELDS).map(([k, label]) => (
+                                                        <option key={k} value={k}>{label} date</option>
+                                                    ))}
+                                                </select>
+                                                <input
+                                                    type="date"
+                                                    value={dateFrom}
+                                                    onChange={e => { setDateFrom(e.target.value); setPage(1); }}
+                                                    className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
+                                                />
+                                                <span className="text-xs text-gray-400">to</span>
+                                                <input
+                                                    type="date"
+                                                    value={dateTo}
+                                                    onChange={e => { setDateTo(e.target.value); setPage(1); }}
+                                                    className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
+                                                />
+                                                {(dateFrom || dateTo) && (
+                                                    <button
+                                                        onClick={() => { setDateFrom(''); setDateTo(''); setPage(1); }}
+                                                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                                        title="Clear date range"
+                                                    >
+                                                        <X size={13} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Print-only shipping labels — mirrors whatever the search/filter
@@ -781,7 +1031,14 @@ const AdminDashboard = () => {
                                                 return (
                                                 <React.Fragment key={id}>
                                                     <tr className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                                                        <td className="p-2.5 font-mono font-semibold text-primary">LT-{id}</td>
+                                                        <td className="p-2.5 font-mono font-semibold text-primary">
+                                                            LT-{id}
+                                                            {order.CfOrderId && (
+                                                                <div className="text-[10px] font-normal text-gray-400 truncate max-w-[120px]" title={`Cashfree Order ID: ${order.CfOrderId}`}>
+                                                                    CF: {order.CfOrderId}
+                                                                </div>
+                                                            )}
+                                                        </td>
                                                         <td className="p-2.5">
                                                             <div className="font-medium">{name}</div>
                                                             {order.Email && <div className="text-xs text-gray-400 truncate max-w-[160px]">{order.Email}</div>}
@@ -833,13 +1090,15 @@ const AdminDashboard = () => {
                                                     </tr>
                                                     {isOpen && (
                                                         <tr className="bg-gray-50 dark:bg-gray-900/40 border-b border-gray-100 dark:border-gray-700">
-                                                            <td colSpan="7" className="p-5">
+                                                            <td colSpan="8" className="p-5">
                                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                                                                     <div>
                                                                         <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Shipping Address</p>
                                                                         <p className="text-sm">{order.Address || '—'}</p>
                                                                         <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mt-3 mb-1">Products</p>
                                                                         <p className="text-sm whitespace-pre-line">{order.ProductList || '—'}</p>
+                                                                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mt-3 mb-1">Cashfree Order ID</p>
+                                                                        <p className="text-sm font-mono break-all">{order.CfOrderId || '—'}</p>
                                                                     </div>
                                                                     <div className="flex flex-col gap-3">
                                                                         <div className="grid grid-cols-2 gap-3">
@@ -913,7 +1172,7 @@ const AdminDashboard = () => {
                                                 );
                                             }) : (
                                                 <tr>
-                                                    <td colSpan="7" className="p-8 text-center text-gray-500">
+                                                    <td colSpan="8" className="p-8 text-center text-gray-500">
                                                         {orders.length === 0 ? 'No orders yet.' : 'No orders match your filters.'}
                                                     </td>
                                                 </tr>

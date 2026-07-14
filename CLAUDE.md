@@ -156,6 +156,66 @@ git push neworg import-latest:main --force  # neworg/main has unrelated old hist
 git checkout main
 ```
 
+## Environment variables reference
+
+Three separate surfaces hold config, and each has its own prod vs. non-prod
+values. Nothing here is optional — a fresh clone/agent working on this repo
+needs to touch all three to stand up (or reproduce) the non-prod environment.
+
+### 1. Local files (edited in VS Code, live in the git repo)
+
+| File | Branch | Var | Prod value | Non-prod value |
+|---|---|---|---|---|
+| `.env.production` | `main` / `import-latest` | `VITE_GOOGLE_CLIENT_ID` | `541581288852-bu890s0gf6rami0mqilephvhtki0c2sl.apps.googleusercontent.com` | same (shared OAuth client) |
+| `.env.production` | `main` / `import-latest` | `VITE_API_URL` | `https://legacy-traces-worker.legacytraces24.workers.dev/` | `https://legacy-traces-worker.legacytracesdev.workers.dev/` |
+| `.env.production` | `main` / `import-latest` | `VITE_CASHFREE_ENV` | `production` | `sandbox` |
+| `Backend/wrangler.toml` | (n/a — one file, per-env blocks) | top-level `[vars]` | prod values (`ALLOWED_ORIGIN`, `CASHFREE_ENV=production`, `WORKER_URL`, `FRONTEND_URL=https://www.legacytraces.com`) | n/a — use `[env.nonprod.vars]` instead |
+| `Backend/wrangler.toml` | — | `[env.nonprod.vars]` | n/a | `ALLOWED_ORIGIN=https://legacy-traces.github.io,http://localhost:5173`, `CASHFREE_ENV=sandbox`, `WORKER_URL=https://legacy-traces-worker.legacytracesdev.workers.dev`, `FRONTEND_URL=https://legacy-traces.github.io` |
+| `Backend/wrangler.toml` | — | `[env.nonprod.d1_databases]` `database_id` | n/a | `8a9437ef-55c9-4768-ad6f-39d079c1ec3f` |
+
+`.env` (gitignored, local-dev-only, used by `npm run dev`) is separate from
+both of these and not part of either deploy pipeline — it's whatever the
+person developing locally wants, pointed at either Worker.
+
+### 2. Cloudflare (secrets — never in a file, set via CLI per account)
+
+Set with `wrangler secret put <NAME>` (prod, top-level) or
+`wrangler secret put <NAME> --env nonprod` (non-prod), while logged into the
+matching account:
+
+| Secret | Prod | Non-prod |
+|---|---|---|
+| `ADMIN_SUB` | set | set |
+| `ADMIN_EMAIL` | set | set |
+| `GOOGLE_CLIENT_ID` | set | set (same public value as `VITE_GOOGLE_CLIENT_ID` above — safe to `echo \| wrangler secret put`) |
+| `CASHFREE_APP_ID` | set (live keys) | set (**must be sandbox keys** — never reuse prod Cashfree credentials here) |
+| `CASHFREE_SECRET_KEY` | set (live keys) | set (**sandbox**) |
+
+Verify what's set (names only, not values) with `wrangler secret list`
+(`--env nonprod` for non-prod).
+
+### 3. GitHub
+
+No GitHub Actions / CI secrets exist for this project — there's no
+`.github/workflows`, deploys are manual (`npm run deploy` / `gh-pages` CLI
+run locally). The only GitHub-side "config" is:
+- The committed `.env.production` per branch (table above) — GitHub just
+  stores whatever's in the branch, no separate Secrets/Variables setup.
+- Repo access itself: pushing to `origin` needs `legacytraces24-svg`
+  account credentials; pushing to `neworg` needs `legacy-traces` account
+  credentials. Git's credential manager caches per-remote, and mixing the
+  two in one session can cause pushes to the wrong repo to fail with a 403
+  using the other account's identity — re-authenticate explicitly if that
+  happens rather than assuming the push is broken.
+
+### Known intentional prod/non-prod schema difference
+
+Prod's D1 has **17 tables** (no `contact_messages`); non-prod has **18**
+(includes it). Confirmed with the project owner (2026-07-14) that this is
+**not a gap to fix** — `contact_messages` is not required in prod as it
+currently stands. Don't run `schema_contact_messages.sql` against prod
+without being told to explicitly.
+
 ## Known gotchas (hit and resolved during initial setup)
 
 - **`git push` can hang on an interactive Git Credential Manager prompt** in

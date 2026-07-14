@@ -75,6 +75,8 @@ npx wrangler d1 execute legacy-traces-db --remote --file=./schema_addresses.sql 
 npx wrangler d1 execute legacy-traces-db --remote --file=./schema_branches.sql --env nonprod
 npx wrangler d1 execute legacy-traces-db --remote --file=./schema_custom.sql --env nonprod
 npx wrangler d1 execute legacy-traces-db --remote --file=./schema_payments.sql --env nonprod
+npx wrangler d1 execute legacy-traces-db --remote --file=./schema_legacy_customers.sql --env nonprod
+npx wrangler d1 execute legacy-traces-db --remote --file=./schema_contact_messages.sql --env nonprod
 npx wrangler d1 execute legacy-traces-db --remote --file=./schema_banner_device.sql --env nonprod
 npx wrangler d1 execute legacy-traces-db --remote --file=./schema_banner_show_button.sql --env nonprod
 npx wrangler d1 execute legacy-traces-db --remote --file=./schema_banner_show_text.sql --env nonprod
@@ -91,6 +93,30 @@ Drop `--env nonprod` (and be logged into the prod account instead) to apply
 against production. Each `ALTER TABLE` file will error with "duplicate
 column" if the column already exists — that's expected/harmless when
 re-running against a database that's already up to date.
+
+**Don't trust the list above blindly** — run `ls Backend/schema_*.sql` and
+diff against it, since new schema files get added over time and this doc
+can drift. `Backend/schema_full.sql` is the authoritative "what a complete
+database should contain" reference (every table + column in one file, for
+docs/comparison purposes only — don't execute it alongside the individual
+files above, its comment header explains why). After applying everything,
+verify parity table-by-table:
+
+```bash
+# actual columns per table
+for t in banners collections types products customers customer_addresses \
+         legacy_customers orders payments custom_orders feedback ratings \
+         coupons coupon_usage contact_messages branch_locations; do
+  echo "=== $t ==="
+  npx wrangler d1 execute legacy-traces-db --remote --command "PRAGMA table_info($t)" --env nonprod
+done
+```
+
+Missing the `legacy_customers` table specifically won't break login (the
+one place that reads it, `postCustomer`/`saveCustomer` in `backend.js`,
+wraps the query in a try/catch and silently no-ops if the table doesn't
+exist) — but every other missing table/column will surface as a hard
+`D1_ERROR` on whatever endpoint queries it.
 
 ### Frontend (GitHub Pages)
 

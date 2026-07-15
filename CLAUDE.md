@@ -98,16 +98,47 @@ for the CORS fix below, but the owner chose to hold it too).
    product's real stock `quantity` — until one exists, update it the same
    way every other product field is managed today: direct
    `wrangler d1 execute ... --command "UPDATE products SET quantity = ? WHERE id = ?"`.
-9. Deploy with:
+9. **New: stock actually decrements on a confirmed sale**, and stale
+   cart price/stock gets corrected before checkout. Two gaps found the same
+   day the ETA feature above shipped: (a) `products.quantity` was only ever
+   *read* (for the ETA estimate), never decremented — a successful payment
+   didn't reduce stock at all; (b) the cart caches a full product snapshot
+   (price, stock) at add-to-cart time with no expiry, so a customer could
+   still see/pay a long-stale price. Fixed:
+   - `orders` gained a `cart_json` column (`schema_order_cart_json.sql`) —
+     `[{productId, qty}]`, set by `postOrder`/`initPayment`/`initCodPayment`/
+     `upsertPendingOrder`. Custom orders don't set it (made-to-order, no
+     catalog stock to deduct).
+   - New `decrementStock(cartItems)` helper (`UPDATE products SET quantity =
+     MAX(quantity - ?, 0) WHERE id = ?`, clamped in SQL so it can't race
+     negative). Called directly in `postOrder` (order is confirmed
+     immediately, no separate pending phase) and from `markOrderPaid` (gated
+     on `isFirstConfirmation`, same guard that already prevents double
+     WhatsApp sends, so a webhook + polling-fallback race can't double-decrement).
+   - The public catalog SELECT (`getAll()`) now exposes `quantity AS
+     Quantity` — previously not sent to the frontend at all.
+   - Frontend: `api.js` gained `refreshProducts()` (bypasses the module-level
+     `cachedData` catalog cache), `CartContext` gained
+     `syncCartWithCatalog(freshProducts)`, and `Checkout.jsx` calls both once
+     on reaching the summary step — silently corrects cart price/stock
+     before payment. **Explicitly not surfaced to the customer** (no "price
+     changed"/"low stock" banner, per the project owner) — this is a
+     backend-facing correctness fix (accurate charge amount, accurate
+     delivery-ETA stock check), not customer-facing messaging.
+   Already deployed and verified on non-prod (schema applied, worker
+   deployed, decrement SQL manually verified against a real product row,
+   catalog response confirmed to include `Quantity`).
+10. Deploy with:
    ```bash
    cd Backend
    npx wrangler login    # sign in as legacytraces24@gmail.com
    npx wrangler d1 execute legacy-traces-db --remote --file=./schema_payments_soft_delete.sql
    npx wrangler d1 execute legacy-traces-db --remote --file=./schema_product_stock.sql
+   npx wrangler d1 execute legacy-traces-db --remote --file=./schema_order_cart_json.sql
    npx wrangler deploy   # no --env flag
    ```
 
-**Frontend (`main` branch — 8 commits ahead of `origin/main`):**
+**Frontend (`main` branch — 10 commits ahead of `origin/main`):**
 - `faed06b`, `b27a6ce`, `e9958ec` — this `CLAUDE.md` file itself (topology,
   schema parity-check steps, full env-var reference)
 - `dfa36ed` — CSP fix whitelisting the non-prod Worker URL in
@@ -128,6 +159,11 @@ for the CORS fix below, but the owner chose to hold it too).
 - `e325726` — Checkout: fixes a real bug where a successful (non-custom)
   payment redirected to `/cart` instead of `/orders` — `clearCart()` raced
   against the Checkout empty-cart effect; guarded with `justCheckedOutRef`
+- `59a4e14` — Checkout: refresh catalog + reconcile stale cart price/stock
+  before payment (pairs with backend item 9 above)
+- `8eabee2` — Checkout: follow-up on the above — dropped the customer-facing
+  "price changed"/"low stock" banner per explicit request; the catalog sync
+  stays, just silent
 - Deploy with: `git push origin main`, then `git checkout main && npm run
   build && npm run deploy`
 

@@ -156,6 +156,9 @@ const AdminDashboard = () => {
     const [searchMobile,  setSearchMobile]  = useState('');
     const [filterStatus,  setFilterStatus]  = useState('');
     const [filterType,    setFilterType]    = useState(''); // '' | 'COD' | 'Prepaid'
+    // Clicking a summary/status card below narrows the table to that slice —
+    // click the same card again to clear it back to "all orders".
+    const [cardFilter,    setCardFilter]    = useState(null);
     // Advanced (ServiceNow-style) condition builder + date range
     const [showAdvanced,  setShowAdvanced]  = useState(false);
     const [conditions,    setConditions]    = useState([]);      // [{ field, operator, value }]
@@ -327,6 +330,33 @@ const AdminDashboard = () => {
         Shipped:         orders.filter(o => o.OrderStatus === 'Shipped').length,
         Delivered:       orders.filter(o => o.OrderStatus === 'Delivered').length,
     };
+
+    // Predicate for whichever summary/status card is currently selected —
+    // null means no card is active (show everything). 'orders'/'items' both
+    // clear back to "all orders" since neither maps to a specific slice.
+    const CARD_FILTER_LABELS = {
+        revenue:         'Total Revenue (Shipped + Delivered)',
+        cod:             'COD orders',
+        prepaid:         'Prepaid orders',
+        new:             'New orders',
+        readyToDispatch: 'Ready to Dispatch orders',
+        shipped:         'Shipped orders',
+        delivered:       'Delivered orders',
+    };
+    const matchesCardFilter = (o) => {
+        switch (cardFilter) {
+            case 'revenue':         return REVENUE_STATUSES.includes(o.OrderStatus);
+            case 'cod':             return o.COD === 'Yes';
+            case 'prepaid':         return o.COD !== 'Yes';
+            case 'new':             return !o.OrderStatus || o.OrderStatus === 'New';
+            case 'readyToDispatch': return o.OrderStatus === 'Ready to dispatch';
+            case 'shipped':         return o.OrderStatus === 'Shipped';
+            case 'delivered':       return o.OrderStatus === 'Delivered';
+            default:                return true;
+        }
+    };
+    // Clicking the already-active card clears the filter instead of re-applying it.
+    const toggleCardFilter = (key) => { setCardFilter(prev => (prev === key ? null : key)); setPage(1); };
 
     const handleOrderEdit = (id, field, value) =>
         setOrderEditState(prev => {
@@ -526,46 +556,85 @@ const AdminDashboard = () => {
             {/* ── ORDERS TAB ─────────────────────────────────────────────────────── */}
             {activeTab === 'orders' && (
                 <>
-                    {/* Summary Cards */}
+                    {/* Summary Cards — click a card to filter the table below by that
+                        slice; click it again (or "Clear filter") to go back to all orders. */}
+                    {cardFilter && (
+                        <div className="flex items-center gap-2 mb-4 text-sm">
+                            <span className="text-gray-500 dark:text-gray-400">Showing:</span>
+                            <span className="px-2.5 py-1 rounded-full bg-primary/10 text-primary font-semibold">
+                                {CARD_FILTER_LABELS[cardFilter]}
+                            </span>
+                            <button
+                                onClick={() => toggleCardFilter(cardFilter)}
+                                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 underline"
+                            >
+                                Clear filter
+                            </button>
+                        </div>
+                    )}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-                        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
+                        <button
+                            type="button"
+                            onClick={() => toggleCardFilter(null)}
+                            className={`text-left bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border-2 transition-colors hover:border-primary/50 ${!cardFilter ? 'border-primary' : 'border-gray-200 dark:border-gray-700'}`}
+                        >
                             <div className="flex items-center justify-between mb-4">
                                 <h3 className="text-gray-500 dark:text-gray-400 font-medium">Total Orders</h3>
                                 <Package className="text-blue-500" size={24} />
                             </div>
                             <p className="text-3xl font-bold">{totalOrders}</p>
-                        </div>
-                        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-[0_0_15px_rgba(34,197,94,0.1)] border border-primary/20">
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => toggleCardFilter('revenue')}
+                            className={`text-left bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-[0_0_15px_rgba(34,197,94,0.1)] border-2 transition-colors hover:border-primary ${cardFilter === 'revenue' ? 'border-primary' : 'border-primary/20'}`}
+                        >
                             <div className="flex items-center justify-between mb-4">
                                 <h3 className="text-gray-500 dark:text-gray-400 font-medium">Total Revenue</h3>
                                 <DollarSign className="text-primary" size={24} />
                             </div>
                             <p className="text-3xl font-bold text-primary">₹{totalRevenue.toLocaleString()}</p>
                             <p className="text-xs text-gray-400 mt-1">Shipped + Delivered orders only</p>
-                        </div>
-                        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
+                        </button>
+                        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border-2 border-gray-200 dark:border-gray-700">
                             <div className="flex items-center justify-between mb-4">
                                 <h3 className="text-gray-500 dark:text-gray-400 font-medium">Items Sold</h3>
                                 <ShoppingCart className="text-purple-500" size={24} />
                             </div>
                             <p className="text-3xl font-bold">{totalItems}</p>
                         </div>
-                        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
+                        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border-2 border-gray-200 dark:border-gray-700">
                             <div className="flex items-center justify-between mb-4">
                                 <h3 className="text-gray-500 dark:text-gray-400 font-medium">Payment Breakup</h3>
                                 <CreditCard className="text-orange-500" size={24} />
                             </div>
                             <div className="flex justify-between items-center mt-2">
-                                <div><p className="text-sm text-gray-500">COD</p><p className="text-xl font-bold">{codOrders}</p></div>
+                                <button
+                                    type="button"
+                                    onClick={() => toggleCardFilter('cod')}
+                                    className={`flex-1 text-left rounded-lg px-2 py-1 -ml-2 transition-colors hover:bg-orange-50 dark:hover:bg-orange-900/20 ${cardFilter === 'cod' ? 'ring-2 ring-primary' : ''}`}
+                                >
+                                    <p className="text-sm text-gray-500">COD</p><p className="text-xl font-bold">{codOrders}</p>
+                                </button>
                                 <div className="h-8 w-px bg-gray-200 dark:bg-gray-700" />
-                                <div><p className="text-sm text-gray-500">Prepaid</p><p className="text-xl font-bold">{prepaidOrders}</p></div>
+                                <button
+                                    type="button"
+                                    onClick={() => toggleCardFilter('prepaid')}
+                                    className={`flex-1 text-left rounded-lg px-2 py-1 -mr-2 transition-colors hover:bg-orange-50 dark:hover:bg-orange-900/20 ${cardFilter === 'prepaid' ? 'ring-2 ring-primary' : ''}`}
+                                >
+                                    <p className="text-sm text-gray-500">Prepaid</p><p className="text-xl font-bold">{prepaidOrders}</p>
+                                </button>
                             </div>
                         </div>
                     </div>
 
                     {/* Status Breakdown */}
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
-                        <div className="bg-yellow-50 dark:bg-yellow-900/20 p-6 rounded-xl border border-yellow-200 dark:border-yellow-800 flex items-center justify-between">
+                        <button
+                            type="button"
+                            onClick={() => toggleCardFilter('new')}
+                            className={`text-left bg-yellow-50 dark:bg-yellow-900/20 p-6 rounded-xl border-2 flex items-center justify-between transition-colors hover:border-yellow-400 ${cardFilter === 'new' ? 'border-yellow-500' : 'border-yellow-200 dark:border-yellow-800'}`}
+                        >
                             <div>
                                 <p className="text-yellow-600 dark:text-yellow-400 font-medium mb-1">New Orders</p>
                                 <p className="text-2xl font-bold text-yellow-700 dark:text-yellow-300">{statusCount.New}</p>
@@ -573,8 +642,12 @@ const AdminDashboard = () => {
                             <div className="bg-yellow-100 dark:bg-yellow-800/50 p-3 rounded-full">
                                 <RefreshCcw className="text-yellow-600 dark:text-yellow-400" size={24} />
                             </div>
-                        </div>
-                        <div className="bg-indigo-50 dark:bg-indigo-900/20 p-6 rounded-xl border border-indigo-200 dark:border-indigo-800 flex items-center justify-between">
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => toggleCardFilter('readyToDispatch')}
+                            className={`text-left bg-indigo-50 dark:bg-indigo-900/20 p-6 rounded-xl border-2 flex items-center justify-between transition-colors hover:border-indigo-400 ${cardFilter === 'readyToDispatch' ? 'border-indigo-500' : 'border-indigo-200 dark:border-indigo-800'}`}
+                        >
                             <div>
                                 <p className="text-indigo-600 dark:text-indigo-400 font-medium mb-1">Ready to Dispatch</p>
                                 <p className="text-2xl font-bold text-indigo-700 dark:text-indigo-300">{statusCount.ReadyToDispatch}</p>
@@ -582,8 +655,12 @@ const AdminDashboard = () => {
                             <div className="bg-indigo-100 dark:bg-indigo-800/50 p-3 rounded-full">
                                 <Package className="text-indigo-600 dark:text-indigo-400" size={24} />
                             </div>
-                        </div>
-                        <div className="bg-blue-50 dark:bg-blue-900/20 p-6 rounded-xl border border-blue-200 dark:border-blue-800 flex items-center justify-between">
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => toggleCardFilter('shipped')}
+                            className={`text-left bg-blue-50 dark:bg-blue-900/20 p-6 rounded-xl border-2 flex items-center justify-between transition-colors hover:border-blue-400 ${cardFilter === 'shipped' ? 'border-blue-500' : 'border-blue-200 dark:border-blue-800'}`}
+                        >
                             <div>
                                 <p className="text-blue-600 dark:text-blue-400 font-medium mb-1">Shipped</p>
                                 <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{statusCount.Shipped}</p>
@@ -591,8 +668,12 @@ const AdminDashboard = () => {
                             <div className="bg-blue-100 dark:bg-blue-800/50 p-3 rounded-full">
                                 <Truck className="text-blue-600 dark:text-blue-400" size={24} />
                             </div>
-                        </div>
-                        <div className="bg-green-50 dark:bg-green-900/20 p-6 rounded-xl border border-green-200 dark:border-green-800 flex items-center justify-between">
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => toggleCardFilter('delivered')}
+                            className={`text-left bg-green-50 dark:bg-green-900/20 p-6 rounded-xl border-2 flex items-center justify-between transition-colors hover:border-green-400 ${cardFilter === 'delivered' ? 'border-green-500' : 'border-green-200 dark:border-green-800'}`}
+                        >
                             <div>
                                 <p className="text-green-600 dark:text-green-400 font-medium mb-1">Delivered</p>
                                 <p className="text-2xl font-bold text-green-700 dark:text-green-300">{statusCount.Delivered}</p>
@@ -600,7 +681,7 @@ const AdminDashboard = () => {
                             <div className="bg-green-100 dark:bg-green-800/50 p-3 rounded-full">
                                 <CheckCircle className="text-green-600 dark:text-green-400" size={24} />
                             </div>
-                        </div>
+                        </button>
                     </div>
 
                     {/* Orders Table */}
@@ -648,15 +729,16 @@ const AdminDashboard = () => {
                         };
                         const clearAllFilters = () => {
                             setSearchId(''); setSearchName(''); setSearchMobile('');
-                            setFilterStatus(''); setFilterType('');
+                            setFilterStatus(''); setFilterType(''); setCardFilter(null);
                             setConditions([]); setDateFrom(''); setDateTo('');
                             setPage(1);
                         };
                         const anyFilterActive = searchId || searchName || searchMobile || filterStatus ||
-                            filterType || conditions.length > 0 || dateFrom || dateTo;
+                            filterType || cardFilter || conditions.length > 0 || dateFrom || dateTo;
 
                         // Derived filtered + sorted + paginated list (computed inline to access state)
                         const filtered = orders
+                            .filter(matchesCardFilter)
                             .filter(o => !searchId   || String(o.id).includes(searchId.trim()))
                             .filter(o => !searchName || (o.Name || '').toLowerCase().includes(searchName.toLowerCase()))
                             .filter(o => !searchMobile || String(o.Mobile || '').includes(searchMobile.trim()))
@@ -984,38 +1066,38 @@ const AdminDashboard = () => {
                                     ))}
                                 </div>
 
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left border-collapse">
+                                <div className="overflow-x-auto border-2 border-gray-200 dark:border-gray-700 rounded-lg">
+                                    <table className="w-full text-left border-collapse text-sm">
                                         <thead>
-                                            <tr className="bg-gray-50 dark:bg-gray-900/50 text-gray-500 dark:text-gray-400 text-sm">
-                                                <th className="p-2.5 font-medium">
+                                            <tr className="bg-gray-50 dark:bg-gray-900/50 text-gray-500 dark:text-gray-400">
+                                                <th className="py-1.5 px-2.5 font-medium border border-gray-200 dark:border-gray-700">
                                                     <button onClick={() => toggleSort('id')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100">
                                                         Order ID <SortIcon col="id" />
                                                     </button>
                                                 </th>
-                                                <th className="p-2.5 font-medium">
+                                                <th className="py-1.5 px-2.5 font-medium border border-gray-200 dark:border-gray-700">
                                                     <button onClick={() => toggleSort('name')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100">
                                                         Customer <SortIcon col="name" />
                                                     </button>
                                                 </th>
-                                                <th className="p-2.5 font-medium">Mobile</th>
-                                                <th className="p-2.5 font-medium">
+                                                <th className="py-1.5 px-2.5 font-medium border border-gray-200 dark:border-gray-700">Mobile</th>
+                                                <th className="py-1.5 px-2.5 font-medium border border-gray-200 dark:border-gray-700">
                                                     <button onClick={() => toggleSort('amount')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100">
                                                         Amount <SortIcon col="amount" />
                                                     </button>
                                                 </th>
-                                                <th className="p-2.5 font-medium">Type</th>
-                                                <th className="p-2.5 font-medium">
+                                                <th className="py-1.5 px-2.5 font-medium border border-gray-200 dark:border-gray-700">Type</th>
+                                                <th className="py-1.5 px-2.5 font-medium border border-gray-200 dark:border-gray-700">
                                                     <button onClick={() => toggleSort('status')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100">
                                                         Status <SortIcon col="status" />
                                                     </button>
                                                 </th>
-                                                <th className="p-2.5 font-medium">
+                                                <th className="py-1.5 px-2.5 font-medium border border-gray-200 dark:border-gray-700">
                                                     <button onClick={() => toggleSort('created')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100">
                                                         Created <SortIcon col="created" />
                                                     </button>
                                                 </th>
-                                                <th className="p-2.5 font-medium">Details</th>
+                                                <th className="py-1.5 px-2.5 font-medium border border-gray-200 dark:border-gray-700">Details</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -1030,8 +1112,8 @@ const AdminDashboard = () => {
                                                 const needsShippingFields = edit.status === 'Shipped' && (!edit.trackingId?.trim() || !edit.shippingCompany?.trim());
                                                 return (
                                                 <React.Fragment key={id}>
-                                                    <tr className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                                                        <td className="p-2.5 font-mono font-semibold text-primary">
+                                                    <tr className="odd:bg-white even:bg-gray-50 dark:odd:bg-gray-800 dark:even:bg-gray-900/30 hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors">
+                                                        <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700 font-mono font-semibold text-primary">
                                                             LT-{id}
                                                             {order.CfOrderId && (
                                                                 <div className="text-[10px] font-normal text-gray-400 truncate max-w-[120px]" title={`Cashfree Order ID: ${order.CfOrderId}`}>
@@ -1039,11 +1121,11 @@ const AdminDashboard = () => {
                                                                 </div>
                                                             )}
                                                         </td>
-                                                        <td className="p-2.5">
+                                                        <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700">
                                                             <div className="font-medium">{name}</div>
                                                             {order.Email && <div className="text-xs text-gray-400 truncate max-w-[160px]">{order.Email}</div>}
                                                         </td>
-                                                        <td className="p-2.5">
+                                                        <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700">
                                                             {order.Mobile ? (
                                                                 <a
                                                                     href={whatsappLink(order.Mobile)}
@@ -1056,13 +1138,13 @@ const AdminDashboard = () => {
                                                                 </a>
                                                             ) : <span className="text-gray-400">—</span>}
                                                         </td>
-                                                        <td className="p-2.5 font-semibold text-primary">₹{amount}</td>
-                                                        <td className="p-2.5">
+                                                        <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700 font-semibold text-primary">₹{amount}</td>
+                                                        <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700">
                                                             <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${isCOD ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'}`}>
                                                                 {isCOD ? 'COD' : 'Prepaid'}
                                                             </span>
                                                         </td>
-                                                        <td className="p-2.5">
+                                                        <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700">
                                                             <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${
                                                                 status === 'New' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' :
                                                                 status === 'Processing' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' :
@@ -1075,10 +1157,10 @@ const AdminDashboard = () => {
                                                                 {status}
                                                             </span>
                                                         </td>
-                                                        <td className="p-2.5 text-sm whitespace-nowrap">
+                                                        <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700 whitespace-nowrap">
                                                             {formatDate(order.CreatedAt) || <span className="text-gray-400">—</span>}
                                                         </td>
-                                                        <td className="p-2.5">
+                                                        <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700">
                                                             <button
                                                                 onClick={() => setExpandedOrderId(isOpen ? null : id)}
                                                                 className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
@@ -1089,8 +1171,8 @@ const AdminDashboard = () => {
                                                         </td>
                                                     </tr>
                                                     {isOpen && (
-                                                        <tr className="bg-gray-50 dark:bg-gray-900/40 border-b border-gray-100 dark:border-gray-700">
-                                                            <td colSpan="8" className="p-5">
+                                                        <tr className="bg-gray-50 dark:bg-gray-900/40">
+                                                            <td colSpan="8" className="p-5 border border-gray-200 dark:border-gray-700">
                                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                                                                     <div>
                                                                         <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Shipping Address</p>
@@ -1172,7 +1254,7 @@ const AdminDashboard = () => {
                                                 );
                                             }) : (
                                                 <tr>
-                                                    <td colSpan="8" className="p-8 text-center text-gray-500">
+                                                    <td colSpan="8" className="p-8 text-center text-gray-500 border border-gray-200 dark:border-gray-700">
                                                         {orders.length === 0 ? 'No orders yet.' : 'No orders match your filters.'}
                                                     </td>
                                                 </tr>

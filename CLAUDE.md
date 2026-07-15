@@ -128,7 +128,37 @@ for the CORS fix below, but the owner chose to hold it too).
    Already deployed and verified on non-prod (schema applied, worker
    deployed, decrement SQL manually verified against a real product row,
    catalog response confirmed to include `Quantity`).
-10. Deploy with:
+10. **Fixed: `markOrderPaid` could double-fire on a race**, reported live by
+    the project owner as "order confirmation WhatsApp arrives twice" after a
+    mobile payment. Root cause: the webhook and the frontend's
+    `checkPaymentStatus` polling fallback can both call `markOrderPaid` for
+    the same order within moments of each other, and the old
+    SELECT-then-UPDATE `isFirstConfirmation` check wasn't atomic across two
+    concurrent requests — both could read `order_status = 'Pending Payment'`
+    before either write landed, so both concluded "I'm first" and both sent
+    the WhatsApp message (and, since the stock-decrement fix above reuses the
+    same guard, both would have decremented stock too). Fixed by making the
+    claim itself the atomic operation: `UPDATE orders SET order_status =
+    'New' WHERE id = ? AND order_status = 'Pending Payment'`, then reading
+    D1's reported `changes` count — exactly one of any concurrent callers
+    sees `isFirstConfirmation = true`, no separate read-then-write gap.
+11. **Fixed: redirect-based mobile payments (UPI intent apps, netbanking)
+    never verified with the backend**, which the project owner also reported
+    the same day as "the order I paid on mobile isn't showing in My
+    Orders." Root cause: Cashfree's in-page checkout modal flow actively
+    polls `checkPaymentStatus` before showing success, but a *redirect*-based
+    payment (common on mobile — the browser actually leaves the site for the
+    UPI app / bank page and comes back) only ever passed `order_status=PAID`
+    on the return URL; nothing on that path called the backend at all, so the
+    order's real status depended entirely on webhook timing — often still
+    `Pending Payment` the instant the orders list rendered. Fixed: `order_meta.return_url`
+    (`initPayment`/`initCodPayment`/`initCustomOrderPayment`/
+    `initCustomOrderCodPayment`) now also carries our own `orderId` as
+    `verifyOrderId`; `Orders.jsx`'s redirect handler calls `checkPaymentStatus`
+    with it (same active-verification path the modal flow already used)
+    before showing the success banner and refreshing the list.
+    Both #10 and #11 already deployed and live on non-prod.
+12. Deploy with:
    ```bash
    cd Backend
    npx wrangler login    # sign in as legacytraces24@gmail.com
@@ -138,7 +168,7 @@ for the CORS fix below, but the owner chose to hold it too).
    npx wrangler deploy   # no --env flag
    ```
 
-**Frontend (`main` branch — 10 commits ahead of `origin/main`):**
+**Frontend (`main` branch — 12 commits ahead of `origin/main`):**
 - `faed06b`, `b27a6ce`, `e9958ec` — this `CLAUDE.md` file itself (topology,
   schema parity-check steps, full env-var reference)
 - `dfa36ed` — CSP fix whitelisting the non-prod Worker URL in
@@ -164,6 +194,11 @@ for the CORS fix below, but the owner chose to hold it too).
 - `8eabee2` — Checkout: follow-up on the above — dropped the customer-facing
   "price changed"/"low stock" banner per explicit request; the catalog sync
   stays, just silent
+- `caa7965` — this `CLAUDE.md` file itself (tracking the stock-decrement +
+  stale-cart-reconciliation fix)
+- `46d827b` — Orders: actively verify redirect-based mobile payments via
+  `checkPaymentStatus` instead of trusting the return URL's `order_status`
+  alone (pairs with backend item 11 above)
 - Deploy with: `git push origin main`, then `git checkout main && npm run
   build && npm run deploy`
 

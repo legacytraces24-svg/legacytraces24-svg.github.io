@@ -207,6 +207,11 @@ for the CORS fix below, but the owner chose to hold it too).
 - `46d827b` — Orders: actively verify redirect-based mobile payments via
   `checkPaymentStatus` instead of trusting the return URL's `order_status`
   alone (pairs with backend item 11 above)
+- `1d8aaa9` — CLAUDE.md: track WhatsApp date-formatting fix (backend item 12)
+- `e038f8c` — Admin dashboard: Refresh button on the orders table toolbar —
+  `loadOrders`/`loadCustomOrders` extracted out of their mount effects so a
+  manual refresh reuses the same fetch-and-reindex logic instead of
+  duplicating it
 - Deploy with: `git push origin main`, then `git checkout main && npm run
   build && npm run deploy`
 

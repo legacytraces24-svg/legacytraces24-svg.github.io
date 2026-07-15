@@ -358,6 +358,14 @@ const Checkout = () => {
                     couponCode: appliedCoupon?.code || null,
                 });
             }
+            // Backend found this order already paid on a prior attempt (the
+            // customer just never saw confirmation) — no new charge was
+            // started, so there's no payment_session_id/modal to open here.
+            if (result.success && result.alreadyPaid) {
+                if (!isCustomMode) clearCart();
+                navigate('/orders', { state: { orderPlaced: true } });
+                return;
+            }
             if (!result.success || !result.payment_session_id) {
                 const msg = result.error === 'Unauthorized'
                     ? 'Session expired. Please sign out and sign in again.'
@@ -440,6 +448,13 @@ const Checkout = () => {
                     pincode:    formData.pincode,
                     couponCode: appliedCoupon?.code || null,
                 });
+            }
+            // Backend found this order's COD advance already paid on a prior
+            // attempt — no new charge was started, nothing to open here.
+            if (result.success && result.alreadyPaid) {
+                if (!isCustomMode) clearCart();
+                navigate('/orders', { state: { orderPlaced: true } });
+                return;
             }
             if (!result.success || !result.payment_session_id) {
                 const msg = result.error === 'Unauthorized'

@@ -8,215 +8,40 @@ or `.env.production` — the two environments look identical at a glance
 (same Worker name, same D1 name) and are only distinguished by *which
 account/remote is currently active*.
 
-## ⚠ Pending prod deployment (held for a single combined push, per project owner)
+## ✅ Deployment status
 
-As of 2026-07-15, prod (`origin` / `legacytraces24` account) is **behind**
-both the local `main` branch and the non-prod Worker. Nothing below has been
-deployed to prod yet — do it all together in one stretch, not piecemeal,
-unless explicitly told otherwise (an exception was already called out once
-for the CORS fix below, but the owner chose to hold it too).
+As of 2026-07-16, **prod and non-prod are in sync** — every fix/feature from
+the 2026-07-15/16 work (Cashfree webhook CORS fix, payments soft-delete +
+active retry verification, `USER_DROPPED` handling, duplicate admin-order
+fix, stock-based delivery ETA + real stock decrementing, stale-cart
+reconciliation at checkout, the `markOrderPaid` atomic race fix, mobile
+redirect-payment verification, WhatsApp date formatting, the admin orders
+Refresh button + column-search cursor-focus fix, `created_at` sort, the
+per-order `in_stock` boolean + working-day ETA calculation) has been
+deployed and verified on both `origin` (prod) and `neworg` (non-prod) — D1
+schema migrations applied, both Workers deployed, both frontends built and
+published, each verified by cloning the live `gh-pages` branch and comparing
+bundle hashes against the local build. `main` and `import-latest` are both
+current with no unpushed commits.
 
-**Backend (`Backend/backend.js` — not git-tracked, deploy via wrangler only):**
-1. **CORS fix exempting the Cashfree webhook route from Origin-based 403
-   rejection** (`fetch()`'s CORS block, near the top of the file). Confirmed
-   via the project owner's own Cashfree dashboard logs: every
-   `PAYMENT_SUCCESS_WEBHOOK` delivery attempt to prod has failed with `403
-   FORBIDDEN` for at least 7 days, because Cashfree's webhook POST never
-   sends a browser `Origin` header and the CORS allow-list check was
-   rejecting it before the request ever reached the webhook logic. This is
-   the actual root cause of "payment succeeded but shows Pending Payment" in
-   prod — see `docs/PAYMENT_FLOW_RCA.md`. Already deployed and verified
-   working on non-prod.
-2. Temporary `console.log` instrumentation added throughout `paymentWebhook`
-   (visible via `wrangler tail`) — safe to deploy alongside the fix, trim
-   later once confirmed reliable in prod.
-3. **Payments soft-delete fix** (`upsertPayment`, `getPaymentStatus`) — a
-   retry used to hard-`DELETE` the order's previous `payments` row before
-   inserting a new one. Once the webhook actually works (item 1 above), this
-   becomes a live bug: if a customer retries before an *earlier* attempt's
-   webhook lands, the retry deletes the row that webhook needs to match
-   against, orphaning a real successful charge (and risking a double charge
-   if both attempts settle). Fixed by soft-deleting instead (new
-   `payments.is_deleted` column — requires running
-   `schema_payments_soft_delete.sql` against prod D1 first, see below).
-   **Must ship in the same push as item 1**, not after — turning the webhook
-   on without this fix reintroduces a way to lose payments. Refined twice
-   further the same day: (a) a prior attempt is only preserved (soft-deleted)
-   while it's < 10 minutes old (its webhook could still be in flight) — past
-   that, a retry reuses the same row; (b) `initPayment`/`initCodPayment` now
-   actively verify a retry's prior attempt with Cashfree directly
-   (`resolvePriorPendingPayment`) before starting a new charge — if it
-   already succeeded, the order is confirmed immediately and the frontend
-   skips opening a second payment modal (`alreadyPaid` response); if
-   Cashfree confirms it's dead (`ACTIVE`/`EXPIRED`/`CANCELLED`), the row is
-   hard-deleted outright. This is now the primary mechanism (ground truth,
-   not a heuristic); the 10-minute timer is the fallback for when Cashfree
-   itself can't be reached. `initCustomOrderPayment`/`initCustomOrderCodPayment`
-   were initially missed when this was added — fixed the same day so custom
-   orders get identical retry protection, not just regular cart checkout.
-4. **`USER_DROPPED` now treated as a terminal failure** in `paymentWebhook`
-   — previously only `SUCCESS`/`FAILED` were recognized, so an abandoned
-   payment (customer closes the Cashfree modal) fell through to `PENDING`
-   and never closed out the order, even though Cashfree does send this event.
-5. Temporary `console.log` instrumentation added throughout `paymentWebhook`
-   (visible via `wrangler tail`) — safe to deploy alongside the fix, trim
-   later once confirmed reliable in prod.
-6. **Known-affected order needing manual review once the fix is live:**
-   order `LT1626` (`cf_payment_id 6012756811`, ₹549, UPI, customer "Vimaly
-   M.") paid successfully on 2026-07-15 but is stuck `Pending Payment` in
-   prod D1 — the webhook that would have confirmed it was 403'd. Deploying
-   the CORS fix only prevents *future* payments from being lost; it does
-   **not** retroactively fix orders already stuck from the past 7+ days of
-   failed deliveries. Cross-check Cashfree's dashboard webhook logs for all
-   `FAILED` `PAYMENT_SUCCESS_WEBHOOK` attempts in that window against D1
-   orders still in `Pending Payment` to find every affected order, not just
-   this one.
-7. **`getAdminOrders`'s `LEFT JOIN payments` now filters `is_deleted = 0`** —
-   without it, an order with more than one `payments` row (any retried
-   payment, now common since item 3 above) was returned once *per payment
-   row*, duplicating that order in the admin orders list and making sorting
-   look broken. Same root cause as item 3: the join's old comment assumed
-   "an order never has two payments rows," which stopped being true the
-   moment `upsertPayment` switched to soft-delete.
-8. **New: stock-based delivery estimate**, sent as the `eta` field on the
-   `order_confirmation` WhatsApp message. `products` gained a `quantity`
-   column (`schema_product_stock.sql`, default **100**, not 0 — there's no
-   admin UI yet to set real per-product stock, and defaulting to 0 would've
-   made every product look out-of-stock the instant this ships). At order
-   time, every function that places/pays for a cart order (`postOrder`,
-   `initPayment`, `initCodPayment`) checks each cart item's quantity against
-   `products.quantity`; if everything ordered is covered, the estimate is
-   **+3 calendar days** from today, else **+7 days**. This is computed once
-   and stored on `orders.delivery_eta` (an existing, previously-admin-edited
-   column, now repurposed — not shown in the admin UI, that was removed
-   earlier per a separate request) so `markOrderPaid` can include it in the
-   WhatsApp payload without needing to re-derive cart contents later. Custom
-   orders (`confirmCustomOrder`, `initCustomOrderPayment`,
-   `initCustomOrderCodPayment`) always use the **+7 day** tier — they're made
-   to order, not pulled from catalog stock.
-   **Known gap:** there is still no admin UI to actually set/edit a
-   product's real stock `quantity` — until one exists, update it the same
-   way every other product field is managed today: direct
-   `wrangler d1 execute ... --command "UPDATE products SET quantity = ? WHERE id = ?"`.
-9. **New: stock actually decrements on a confirmed sale**, and stale
-   cart price/stock gets corrected before checkout. Two gaps found the same
-   day the ETA feature above shipped: (a) `products.quantity` was only ever
-   *read* (for the ETA estimate), never decremented — a successful payment
-   didn't reduce stock at all; (b) the cart caches a full product snapshot
-   (price, stock) at add-to-cart time with no expiry, so a customer could
-   still see/pay a long-stale price. Fixed:
-   - `orders` gained a `cart_json` column (`schema_order_cart_json.sql`) —
-     `[{productId, qty}]`, set by `postOrder`/`initPayment`/`initCodPayment`/
-     `upsertPendingOrder`. Custom orders don't set it (made-to-order, no
-     catalog stock to deduct).
-   - New `decrementStock(cartItems)` helper (`UPDATE products SET quantity =
-     MAX(quantity - ?, 0) WHERE id = ?`, clamped in SQL so it can't race
-     negative). Called directly in `postOrder` (order is confirmed
-     immediately, no separate pending phase) and from `markOrderPaid` (gated
-     on `isFirstConfirmation`, same guard that already prevents double
-     WhatsApp sends, so a webhook + polling-fallback race can't double-decrement).
-   - The public catalog SELECT (`getAll()`) now exposes `quantity AS
-     Quantity` — previously not sent to the frontend at all.
-   - Frontend: `api.js` gained `refreshProducts()` (bypasses the module-level
-     `cachedData` catalog cache), `CartContext` gained
-     `syncCartWithCatalog(freshProducts)`, and `Checkout.jsx` calls both once
-     on reaching the summary step — silently corrects cart price/stock
-     before payment. **Explicitly not surfaced to the customer** (no "price
-     changed"/"low stock" banner, per the project owner) — this is a
-     backend-facing correctness fix (accurate charge amount, accurate
-     delivery-ETA stock check), not customer-facing messaging.
-   Already deployed and verified on non-prod (schema applied, worker
-   deployed, decrement SQL manually verified against a real product row,
-   catalog response confirmed to include `Quantity`).
-10. **Fixed: `markOrderPaid` could double-fire on a race**, reported live by
-    the project owner as "order confirmation WhatsApp arrives twice" after a
-    mobile payment. Root cause: the webhook and the frontend's
-    `checkPaymentStatus` polling fallback can both call `markOrderPaid` for
-    the same order within moments of each other, and the old
-    SELECT-then-UPDATE `isFirstConfirmation` check wasn't atomic across two
-    concurrent requests — both could read `order_status = 'Pending Payment'`
-    before either write landed, so both concluded "I'm first" and both sent
-    the WhatsApp message (and, since the stock-decrement fix above reuses the
-    same guard, both would have decremented stock too). Fixed by making the
-    claim itself the atomic operation: `UPDATE orders SET order_status =
-    'New' WHERE id = ? AND order_status = 'Pending Payment'`, then reading
-    D1's reported `changes` count — exactly one of any concurrent callers
-    sees `isFirstConfirmation = true`, no separate read-then-write gap.
-11. **Fixed: redirect-based mobile payments (UPI intent apps, netbanking)
-    never verified with the backend**, which the project owner also reported
-    the same day as "the order I paid on mobile isn't showing in My
-    Orders." Root cause: Cashfree's in-page checkout modal flow actively
-    polls `checkPaymentStatus` before showing success, but a *redirect*-based
-    payment (common on mobile — the browser actually leaves the site for the
-    UPI app / bank page and comes back) only ever passed `order_status=PAID`
-    on the return URL; nothing on that path called the backend at all, so the
-    order's real status depended entirely on webhook timing — often still
-    `Pending Payment` the instant the orders list rendered. Fixed: `order_meta.return_url`
-    (`initPayment`/`initCodPayment`/`initCustomOrderPayment`/
-    `initCustomOrderCodPayment`) now also carries our own `orderId` as
-    `verifyOrderId`; `Orders.jsx`'s redirect handler calls `checkPaymentStatus`
-    with it (same active-verification path the modal flow already used)
-    before showing the success banner and refreshing the list.
-    Both #10 and #11 already deployed and live on non-prod.
-12. **Fixed: WhatsApp `orderDate`/`deliveredDate` sent as a raw ISO
-    timestamp** (e.g. `2026-07-15T14:23:01.234Z`) instead of a human-friendly
-    date — inconsistent with `eta`, which already used `toFriendlyDate()`.
-    All `order_confirmation`/`order_dispatched`/`order_delivered` WhatsApp
-    payloads (`postOrder`, `markOrderPaid`, `confirmCustomOrder`,
-    `applyOrderShippingUpdate`) now format these the same way as `eta`
-    (`toFriendlyDate`, e.g. `15 Jul 2026`). The now-unused `toIso()` helper
-    was removed. Already deployed and live on non-prod.
-13. Deploy with:
-   ```bash
-   cd Backend
-   npx wrangler login    # sign in as legacytraces24@gmail.com
-   npx wrangler d1 execute legacy-traces-db --remote --file=./schema_payments_soft_delete.sql
-   npx wrangler d1 execute legacy-traces-db --remote --file=./schema_product_stock.sql
-   npx wrangler d1 execute legacy-traces-db --remote --file=./schema_order_cart_json.sql
-   npx wrangler deploy   # no --env flag
-   ```
+Full history of *why* each change was made lives in git log / commit
+messages, not here — this file only tracks current topology and open items.
 
-**Frontend (`main` branch — 12 commits ahead of `origin/main`):**
-- `faed06b`, `b27a6ce`, `e9958ec` — this `CLAUDE.md` file itself (topology,
-  schema parity-check steps, full env-var reference)
-- `dfa36ed` — CSP fix whitelisting the non-prod Worker URL in
-  `index.html`'s `connect-src` (harmless for prod — just widens the
-  allow-list, doesn't change prod's own behavior)
-- `909215c` — Admin dashboard: revenue = Shipped+Delivered, CF order ID,
-  advanced filters
-- `0f89122` — `docs/PAYMENT_FLOW_RCA.md` + this pending-deployment tracking
-- `d84d172` — Checkout: warns the customer not to close the payment
-  window/tab during the active payment or verification window
-- `639b002` — Checkout: skips a redundant payment modal if a retry is
-  already paid (pairs with backend item 3)
-- `9d209e5` — Admin dashboard: clickable summary/status filter cards,
-  compact bordered orders table
-- `44cc4f0` — Admin dashboard: ServiceNow-style unified column search
-  (per-column lens-icon search feeding the same condition model as the
-  Advanced panel; replaces the old top search boxes + separate date range)
-- `e325726` — Checkout: fixes a real bug where a successful (non-custom)
-  payment redirected to `/cart` instead of `/orders` — `clearCart()` raced
-  against the Checkout empty-cart effect; guarded with `justCheckedOutRef`
-- `59a4e14` — Checkout: refresh catalog + reconcile stale cart price/stock
-  before payment (pairs with backend item 9 above)
-- `8eabee2` — Checkout: follow-up on the above — dropped the customer-facing
-  "price changed"/"low stock" banner per explicit request; the catalog sync
-  stays, just silent
-- `caa7965` — this `CLAUDE.md` file itself (tracking the stock-decrement +
-  stale-cart-reconciliation fix)
-- `46d827b` — Orders: actively verify redirect-based mobile payments via
-  `checkPaymentStatus` instead of trusting the return URL's `order_status`
-  alone (pairs with backend item 11 above)
-- `1d8aaa9` — CLAUDE.md: track WhatsApp date-formatting fix (backend item 12)
-- `e038f8c` — Admin dashboard: Refresh button on the orders table toolbar —
-  `loadOrders`/`loadCustomOrders` extracted out of their mount effects so a
-  manual refresh reuses the same fetch-and-reindex logic instead of
-  duplicating it
-- `da7066e` — Orders: explicitly sort both the regular and custom orders
-  lists by `created_at` descending on the client, so latest-first no longer
-  depends on row id happening to track creation recency
-- Deploy with: `git push origin main`, then `git checkout main && npm run
-  build && npm run deploy`
+**Still open (not a deployment gap — needs manual data work):**
+- Order `LT1626` (`cf_payment_id 6012756811`, ₹549, UPI, customer "Vimaly
+  M.") paid successfully on 2026-07-15 but was stuck `Pending Payment` in
+  prod D1 from before the CORS fix shipped — that fix only prevents *future*
+  payments from being lost this way, it doesn't retroactively fix orders
+  already stuck from the ~7 days the webhook was silently 403ing. Cross-check
+  Cashfree's dashboard webhook logs for all `FAILED` `PAYMENT_SUCCESS_WEBHOOK`
+  attempts in that window against D1 orders still in `Pending Payment` to
+  find every affected order, not just this one.
+- Temporary `console.log` instrumentation is still live throughout
+  `paymentWebhook` in both environments (harmless, visible via `wrangler
+  tail`) — fine to leave while confirming webhook reliability, trim whenever.
+- There is still no admin UI to set/edit a product's real stock `quantity` —
+  update it the same way every other product field is managed today: direct
+  `wrangler d1 execute ... --command "UPDATE products SET quantity = ? WHERE id = ?"`.
 
 ## Topology at a glance
 
@@ -297,6 +122,11 @@ npx wrangler d1 execute legacy-traces-db --remote --file=./schema_delivery_track
 npx wrangler d1 execute legacy-traces-db --remote --file=./schema_max_price.sql --env nonprod
 npx wrangler d1 execute legacy-traces-db --remote --file=./schema_shipped_at.sql --env nonprod
 npx wrangler d1 execute legacy-traces-db --remote --file=./schema_shipping.sql --env nonprod
+npx wrangler d1 execute legacy-traces-db --remote --file=./schema_payments_soft_delete.sql --env nonprod
+npx wrangler d1 execute legacy-traces-db --remote --file=./schema_product_stock.sql --env nonprod
+npx wrangler d1 execute legacy-traces-db --remote --file=./schema_order_cart_json.sql --env nonprod
+npx wrangler d1 execute legacy-traces-db --remote --file=./schema_order_in_stock.sql --env nonprod
+npx wrangler d1 execute legacy-traces-db --remote --file=./schema_order_in_stock_backfill.sql --env nonprod
 ```
 
 Drop `--env nonprod` (and be logged into the prod account instead) to apply

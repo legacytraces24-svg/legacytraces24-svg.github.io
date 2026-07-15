@@ -163,6 +163,7 @@ const AdminDashboard = () => {
     const [customOrders, setCustomOrders] = useState([]);
     const [loading, setLoading]       = useState(true);
     const [loadingCustom, setLoadingCustom] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
 
     // Design preview modal
     const [previewImage, setPreviewImage] = useState(null);
@@ -249,54 +250,72 @@ const AdminDashboard = () => {
     // React errors on and which left the Orders page blank. Conditional
     // returns now happen only after every hook has been declared, below.
 
+    // Reusable so the header's Refresh button can re-run the exact same load
+    // used on mount, instead of duplicating the fetch-and-reindex logic.
+    const loadOrders = async () => {
+        if (!user?.idToken) return;
+        try {
+            const data = await fetchAdminOrders(user.idToken);
+            const rows = Array.isArray(data) ? data : [];
+            setOrders(rows);
+            const init = {};
+            rows.forEach(o => {
+                init[o.id] = {
+                    trackingId:      o.TrackingId || '',
+                    shippingCompany: o.ShippingCompany || '',
+                    status:          o.OrderStatus || 'New',
+                    shippedAt:       toDateInputValue(o.ShippedAt),
+                    deliveredAt:     toDateInputValue(o.DeliveredAt),
+                };
+            });
+            setOrderEditState(init);
+        } catch (err) {
+            console.error('Failed to load admin orders:', err);
+        }
+    };
+
     useEffect(() => {
-        const load = async () => {
-            if (!user?.idToken) return;
-            try {
-                const data = await fetchAdminOrders(user.idToken);
-                const rows = Array.isArray(data) ? data : [];
-                setOrders(rows);
-                const init = {};
-                rows.forEach(o => {
-                    init[o.id] = {
-                        trackingId:      o.TrackingId || '',
-                        shippingCompany: o.ShippingCompany || '',
-                        status:          o.OrderStatus || 'New',
-                        shippedAt:       toDateInputValue(o.ShippedAt),
-                        deliveredAt:     toDateInputValue(o.DeliveredAt),
-                    };
-                });
-                setOrderEditState(init);
-            } catch (err) {
-                console.error('Failed to load admin orders:', err);
-            }
-            setLoading(false);
-        };
-        load();
+        loadOrders().finally(() => setLoading(false));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user?.idToken]);
+
+    // Re-runs the orders load without the full-page loading spinner, since
+    // the table is already visible and shouldn't flash empty on a refresh.
+    const handleRefresh = async () => {
+        setRefreshing(true);
+        try {
+            await loadOrders();
+        } finally {
+            setRefreshing(false);
+        }
+    };
+
+    // Reusable so the header's Refresh button can re-run the exact same load
+    // used when this tab is first opened.
+    const loadCustomOrders = async () => {
+        if (!user?.idToken) return;
+        try {
+            const res = await getAdminCustomOrders(user.idToken);
+            const rows = res.orders || [];
+            setCustomOrders(rows);
+            const init = {};
+            rows.forEach(o => {
+                init[o.id] = {
+                    price:  o.quoted_price != null ? String(o.quoted_price) : '',
+                    status: o.status,
+                };
+            });
+            setEditState(init);
+        } catch (err) {
+            console.error('Failed to load custom orders:', err);
+        }
+    };
 
     useEffect(() => {
         if (activeTab !== 'custom' || !user?.idToken) return;
-        const load = async () => {
-            setLoadingCustom(true);
-            try {
-                const res = await getAdminCustomOrders(user.idToken);
-                const rows = res.orders || [];
-                setCustomOrders(rows);
-                const init = {};
-                rows.forEach(o => {
-                    init[o.id] = {
-                        price:  o.quoted_price != null ? String(o.quoted_price) : '',
-                        status: o.status,
-                    };
-                });
-                setEditState(init);
-            } catch (err) {
-                console.error('Failed to load custom orders:', err);
-            }
-            setLoadingCustom(false);
-        };
-        load();
+        setLoadingCustom(true);
+        loadCustomOrders().finally(() => setLoadingCustom(false));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTab, user?.idToken]);
 
     // ── Auth guard renders — now safely after every hook above has run ────────
@@ -918,6 +937,15 @@ const AdminDashboard = () => {
                                             </span>
                                         </h2>
                                         <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={handleRefresh}
+                                                disabled={refreshing}
+                                                title="Refresh list"
+                                                className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-primary hover:border-primary/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                <RefreshCcw size={13} className={refreshing ? 'animate-spin' : ''} />
+                                                Refresh
+                                            </button>
                                             <label className="text-xs text-gray-500">Rows:</label>
                                             <select
                                                 value={pageSize}

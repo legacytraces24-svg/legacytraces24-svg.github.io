@@ -9,6 +9,12 @@ import {
     ShoppingBag, Truck, CheckCircle2, Clock, AlertCircle, Shirt
 } from 'lucide-react';
 
+// Newest-first by creation date — applied on top of whatever order the
+// backend returned, so the list is guaranteed latest-at-top regardless of
+// row id (e.g. a paid-later retry that reused an earlier pending order's row).
+const byCreatedAtDesc = (a, b) =>
+    new Date(b.created_at.replace(' ', 'T') + 'Z') - new Date(a.created_at.replace(' ', 'T') + 'Z');
+
 // DB status (left) → customer-facing label (right).
 const statusConfig = {
     'New':             { color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',       icon: <Clock size={12} />,        label: 'Confirmed' },
@@ -420,7 +426,7 @@ const Orders = () => {
             setLoading(true);
             try {
                 const orders = await fetchMyOrders(user.idToken);
-                setOrders(orders); // backend already returns newest-first (ORDER BY id DESC)
+                setOrders([...orders].sort(byCreatedAtDesc));
             } catch {
                 // silent — UI already shows empty state
             } finally {
@@ -465,7 +471,7 @@ const Orders = () => {
             setLoadingCustom(true);
             try {
                 const res = await getMyCustomOrders(user.idToken);
-                setCustomOrders(res.orders || []);
+                setCustomOrders([...(res.orders || [])].sort(byCreatedAtDesc));
             } catch {
                 // silent — UI already shows empty state
             } finally {

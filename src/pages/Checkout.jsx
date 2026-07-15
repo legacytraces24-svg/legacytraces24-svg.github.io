@@ -14,14 +14,24 @@ import {
 const COD_ADVANCE_AMOUNT = 100;
 import { useUser } from '../context/UserContext';
 
-// Mirrors the backend's computeDeliveryEta/ESTIMATED_DELIVERY_DAYS_* exactly
-// (Backend/backend.js) — an in-stock cart ships in 3 calendar days, otherwise 7.
+// Mirrors the backend's computeDeliveryEta/addWorkingDays exactly
+// (Backend/backend.js) — an in-stock cart ships in 3 working days, otherwise
+// 7, skipping Saturdays and Sundays (the courier doesn't run weekends).
 const ESTIMATED_DELIVERY_DAYS_IN_STOCK     = 3;
 const ESTIMATED_DELIVERY_DAYS_OUT_OF_STOCK = 7;
+const addWorkingDays = (date, days) => {
+    const result = new Date(date);
+    let added = 0;
+    while (added < days) {
+        result.setDate(result.getDate() + 1);
+        const day = result.getDay(); // 0 = Sun, 6 = Sat
+        if (day !== 0 && day !== 6) added++;
+    }
+    return result;
+};
 const friendlyEtaFromToday = (inStock) => {
-    const d = new Date();
-    d.setDate(d.getDate() + (inStock ? ESTIMATED_DELIVERY_DAYS_IN_STOCK : ESTIMATED_DELIVERY_DAYS_OUT_OF_STOCK));
-    return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    const days = inStock ? ESTIMATED_DELIVERY_DAYS_IN_STOCK : ESTIMATED_DELIVERY_DAYS_OUT_OF_STOCK;
+    return addWorkingDays(new Date(), days).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
 const Checkout = () => {

@@ -15,6 +15,14 @@ import {
 const byCreatedAtDesc = (a, b) =>
     new Date(b.created_at.replace(' ', 'T') + 'Z') - new Date(a.created_at.replace(' ', 'T') + 'Z');
 
+// D1 timestamp ('YYYY-MM-DD HH:MM:SS') → human-friendly date, e.g. "19 Jul 2026".
+// Mirrors the backend's toFriendlyDate (Backend/backend.js) used in WhatsApp messages.
+const formatFriendlyDate = (ts) => {
+    if (!ts) return null;
+    const d = new Date(ts.replace(' ', 'T') + 'Z');
+    return isNaN(d) ? null : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+};
+
 // DB status (left) → customer-facing label (right).
 const statusConfig = {
     'New':             { color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',       icon: <Clock size={12} />,        label: 'Confirmed' },
@@ -285,6 +293,11 @@ const OrderCard = ({ order, onClick }) => {
             {order.Address && (
                 <p className="text-xs text-gray-500 dark:text-gray-400 truncate flex items-center gap-1">
                     <MapPin size={11} className="shrink-0" /> {order.Address}
+                </p>
+            )}
+            {order.DeliveryEta && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 mt-1">
+                    <Truck size={11} className="shrink-0" /> Est. delivery: {formatFriendlyDate(order.DeliveryEta)}
                 </p>
             )}
             <div className="flex justify-end mt-2">
@@ -566,6 +579,12 @@ const Orders = () => {
                             <span className="text-gray-500">Tracking ID</span>
                             <span className="font-bold font-mono">{selectedOrder.TrackingId || 'N/A'}</span>
                         </div>
+                        {selectedOrder.DeliveryEta && (
+                            <div className="flex justify-between">
+                                <span className="text-gray-500">Estimated Delivery</span>
+                                <span className="font-bold">{formatFriendlyDate(selectedOrder.DeliveryEta)}</span>
+                            </div>
+                        )}
                     </div>
                 </div>
 

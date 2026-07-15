@@ -72,6 +72,8 @@ const FILTER_FIELDS = {
     CreatedAt:       { label: 'Created Date',      type: 'date',   get: o => o.CreatedAt   || '' },
     ShippedAt:       { label: 'Shipped Date',      type: 'date',   get: o => o.ShippedAt   || '' },
     DeliveredAt:     { label: 'Delivered Date',    type: 'date',   get: o => o.DeliveredAt || '' },
+    DeliveryEta:     { label: 'Delivery ETA',      type: 'date',   get: o => o.DeliveryEta || '' },
+    InStock:         { label: 'In Stock',          type: 'select', options: ['True', 'False'], get: o => o.InStock === null || o.InStock === undefined ? '' : (Number(o.InStock) === 1 ? 'True' : 'False') },
 };
 
 const OPERATORS_BY_TYPE = {
@@ -145,6 +147,117 @@ const CUSTOM_STATUS_COLOR = {
     'Shipped':       'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400',
     'Delivered':     'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
     'Cancelled':     'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+};
+
+const SortIcon = ({ col, sortCol, sortDir }) => {
+    if (sortCol !== col) return <ChevronsUpDown size={13} className="text-gray-400" />;
+    return sortDir === 'asc'
+        ? <ChevronUp size={13} className="text-primary" />
+        : <ChevronDown size={13} className="text-primary" />;
+};
+
+// ServiceNow-style column header: a lens icon on the left toggles an inline
+// search box for that column, shown in the filter row directly beneath the
+// header row. `sortKey` wires up the existing click-to-sort label;
+// `filterField` is the FILTER_FIELDS key this column searches. Lives at
+// module scope (not defined inside AdminDashboard's render) so it keeps a
+// stable component identity across renders — see ColumnFilterCell's comment
+// for why that matters.
+const ColumnHeader = ({
+    children, sortKey, filterField,
+    sortCol, sortDir, columnSearchOpen, columnConditionIndex, toggleColumnSearch, toggleSort,
+}) => (
+    <th className="py-1.5 px-2.5 font-medium border border-gray-200 dark:border-gray-700">
+        <div className="flex items-center gap-1">
+            {filterField && (
+                <button
+                    onClick={() => toggleColumnSearch(filterField)}
+                    className={`p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 ${
+                        columnSearchOpen[filterField] || columnConditionIndex(filterField) !== -1
+                            ? 'text-primary' : 'text-gray-400'
+                    }`}
+                    title={`Search ${FILTER_FIELDS[filterField].label}`}
+                >
+                    <Search size={12} />
+                </button>
+            )}
+            {sortKey ? (
+                <button onClick={() => toggleSort(sortKey)} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100">
+                    {children} <SortIcon col={sortKey} sortCol={sortCol} sortDir={sortDir} />
+                </button>
+            ) : children}
+        </div>
+    </th>
+);
+
+// Inline filter-row cell rendered directly under a ColumnHeader — blank (but
+// same row height) when that column's search isn't open. Writes straight
+// into the shared `conditions` array via setColumnSearchValue/
+// setColumnDateRange, so it's the exact same filter the Advanced panel
+// edits — either entry point can continue refining what the other started.
+//
+// Must live at module scope, not be defined inline inside AdminDashboard's
+// render: a component defined inside a render function is a brand-new
+// function (and therefore a brand-new component type, as far as React's
+// reconciler is concerned) on every single render. React uses that type
+// identity to decide whether to update the existing DOM node or tear it
+// down and mount a new one — so a fresh definition every render meant every
+// keystroke's state update remounted this <input>, dropping focus/cursor
+// position immediately after each character typed. Defining it once here
+// and passing all state through as props keeps the component identity
+// stable, so React just updates the existing input instead of replacing it.
+const ColumnFilterCell = ({ field, columnSearchOpen, conditions, columnConditionIndex, setColumnSearchValue, setColumnDateRange }) => {
+    const def = FILTER_FIELDS[field];
+    const idx = columnConditionIndex(field);
+    const cond = idx !== -1 ? conditions[idx] : null;
+    if (!columnSearchOpen[field]) {
+        return <td className="border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30" />;
+    }
+    if (def.type === 'select') {
+        return (
+            <td className="p-1 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30">
+                <select
+                    value={cond?.value || ''}
+                    onChange={ev => setColumnSearchValue(field, ev.target.value)}
+                    className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded px-1.5 py-1 focus:ring-primary focus:border-primary"
+                >
+                    <option value="">Any</option>
+                    {def.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+            </td>
+        );
+    }
+    if (def.type === 'date') {
+        return (
+            <td className="p-1 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30">
+                <div className="flex items-center gap-1">
+                    <input
+                        type="date"
+                        value={cond?.value || ''}
+                        onChange={ev => setColumnDateRange(field, 'from', ev.target.value)}
+                        className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded px-1 py-1 focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                    <input
+                        type="date"
+                        value={cond?.value2 || ''}
+                        onChange={ev => setColumnDateRange(field, 'to', ev.target.value)}
+                        className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded px-1 py-1 focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                </div>
+            </td>
+        );
+    }
+    return (
+        <td className="p-1 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30">
+            <input
+                type={def.type === 'number' ? 'number' : 'text'}
+                value={cond?.value || ''}
+                onChange={ev => setColumnSearchValue(field, ev.target.value)}
+                placeholder="Search…"
+                className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+        </td>
+    );
 };
 
 const AdminDashboard = () => {
@@ -824,105 +937,21 @@ const AdminDashboard = () => {
                         const safePage    = Math.min(page, totalPages);
                         const paginated   = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
 
-                        const SortIcon = ({ col }) => {
-                            if (sortCol !== col) return <ChevronsUpDown size={13} className="text-gray-400" />;
-                            return sortDir === 'asc'
-                                ? <ChevronUp size={13} className="text-primary" />
-                                : <ChevronDown size={13} className="text-primary" />;
-                        };
                         const toggleSort = (col) => {
                             if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
                             else { setSortCol(col); setSortDir('desc'); }
                             setPage(1);
                         };
 
-                        // ServiceNow-style column header: a lens icon on the left toggles an
-                        // inline search box for that column, shown in the filter row directly
-                        // beneath the header row. `sortKey` wires up the existing click-to-sort
-                        // label; `filterField` is the FILTER_FIELDS key this column searches.
-                        const ColumnHeader = ({ children, sortKey, filterField }) => (
-                            <th className="py-1.5 px-2.5 font-medium border border-gray-200 dark:border-gray-700">
-                                <div className="flex items-center gap-1">
-                                    {filterField && (
-                                        <button
-                                            onClick={() => toggleColumnSearch(filterField)}
-                                            className={`p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 ${
-                                                columnSearchOpen[filterField] || columnConditionIndex(filterField) !== -1
-                                                    ? 'text-primary' : 'text-gray-400'
-                                            }`}
-                                            title={`Search ${FILTER_FIELDS[filterField].label}`}
-                                        >
-                                            <Search size={12} />
-                                        </button>
-                                    )}
-                                    {sortKey ? (
-                                        <button onClick={() => toggleSort(sortKey)} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100">
-                                            {children} <SortIcon col={sortKey} />
-                                        </button>
-                                    ) : children}
-                                </div>
-                            </th>
-                        );
-
-                        // Inline filter-row cell rendered directly under a ColumnHeader —
-                        // blank (but same row height) when that column's search isn't open.
-                        // Writes straight into the shared `conditions` array via
-                        // setColumnSearchValue/setColumnDateRange, so it's the exact same
-                        // filter the Advanced panel edits — either entry point can continue
-                        // refining what the other started.
-                        const ColumnFilterCell = ({ field }) => {
-                            const def = FILTER_FIELDS[field];
-                            const idx = columnConditionIndex(field);
-                            const cond = idx !== -1 ? conditions[idx] : null;
-                            if (!columnSearchOpen[field]) {
-                                return <td className="border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30" />;
-                            }
-                            if (def.type === 'select') {
-                                return (
-                                    <td className="p-1 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30">
-                                        <select
-                                            value={cond?.value || ''}
-                                            onChange={ev => setColumnSearchValue(field, ev.target.value)}
-                                            className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded px-1.5 py-1 focus:ring-primary focus:border-primary"
-                                        >
-                                            <option value="">Any</option>
-                                            {def.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                                        </select>
-                                    </td>
-                                );
-                            }
-                            if (def.type === 'date') {
-                                return (
-                                    <td className="p-1 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30">
-                                        <div className="flex items-center gap-1">
-                                            <input
-                                                type="date"
-                                                value={cond?.value || ''}
-                                                onChange={ev => setColumnDateRange(field, 'from', ev.target.value)}
-                                                className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded px-1 py-1 focus:outline-none focus:ring-1 focus:ring-primary"
-                                            />
-                                            <input
-                                                type="date"
-                                                value={cond?.value2 || ''}
-                                                onChange={ev => setColumnDateRange(field, 'to', ev.target.value)}
-                                                className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded px-1 py-1 focus:outline-none focus:ring-1 focus:ring-primary"
-                                            />
-                                        </div>
-                                    </td>
-                                );
-                            }
-                            return (
-                                <td className="p-1 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30">
-                                    <input
-                                        type={def.type === 'number' ? 'number' : 'text'}
-                                        value={cond?.value || ''}
-                                        onChange={ev => setColumnSearchValue(field, ev.target.value)}
-                                        placeholder="Search…"
-                                        className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-primary"
-                                    />
-                                </td>
-                            );
-                        };
+                        // SortIcon/ColumnHeader/ColumnFilterCell now live at module scope (see
+                        // near FILTER_FIELDS above) instead of being redefined on every render —
+                        // a component defined inside a render function gets a brand-new identity
+                        // each render, so React treated every keystroke as "a different
+                        // component type" and remounted the <input>, dropping focus/cursor
+                        // position after each character. These prop bundles just keep the JSX
+                        // below from repeating the same six props on every column.
+                        const columnHeaderProps = { sortCol, sortDir, columnSearchOpen, columnConditionIndex, toggleColumnSearch, toggleSort };
+                        const columnFilterProps = { columnSearchOpen, conditions, columnConditionIndex, setColumnSearchValue, setColumnDateRange };
                         const anyColumnSearchOpen = Object.values(columnSearchOpen).some(Boolean);
 
                         return (
@@ -1170,24 +1199,28 @@ const AdminDashboard = () => {
                                     <table className="w-full text-left border-collapse text-sm">
                                         <thead>
                                             <tr className="bg-gray-50 dark:bg-gray-900/50 text-gray-500 dark:text-gray-400">
-                                                <ColumnHeader sortKey="id" filterField="id">Order ID</ColumnHeader>
-                                                <ColumnHeader sortKey="name" filterField="Name">Customer</ColumnHeader>
-                                                <ColumnHeader filterField="Mobile">Mobile</ColumnHeader>
-                                                <ColumnHeader sortKey="amount" filterField="AmountPaid">Amount</ColumnHeader>
-                                                <ColumnHeader filterField="COD">Type</ColumnHeader>
-                                                <ColumnHeader sortKey="status" filterField="OrderStatus">Status</ColumnHeader>
-                                                <ColumnHeader sortKey="created" filterField="CreatedAt">Created</ColumnHeader>
+                                                <ColumnHeader {...columnHeaderProps} sortKey="id" filterField="id">Order ID</ColumnHeader>
+                                                <ColumnHeader {...columnHeaderProps} sortKey="name" filterField="Name">Customer</ColumnHeader>
+                                                <ColumnHeader {...columnHeaderProps} filterField="Mobile">Mobile</ColumnHeader>
+                                                <ColumnHeader {...columnHeaderProps} sortKey="amount" filterField="AmountPaid">Amount</ColumnHeader>
+                                                <ColumnHeader {...columnHeaderProps} filterField="COD">Type</ColumnHeader>
+                                                <ColumnHeader {...columnHeaderProps} sortKey="status" filterField="OrderStatus">Status</ColumnHeader>
+                                                <ColumnHeader {...columnHeaderProps} sortKey="created" filterField="CreatedAt">Created</ColumnHeader>
+                                                <ColumnHeader {...columnHeaderProps} filterField="DeliveryEta">Delivery ETA</ColumnHeader>
+                                                <ColumnHeader {...columnHeaderProps} filterField="InStock">In Stock</ColumnHeader>
                                                 <th className="py-1.5 px-2.5 font-medium border border-gray-200 dark:border-gray-700">Details</th>
                                             </tr>
                                             {anyColumnSearchOpen && (
                                                 <tr className="bg-gray-50 dark:bg-gray-900/30">
-                                                    <ColumnFilterCell field="id" />
-                                                    <ColumnFilterCell field="Name" />
-                                                    <ColumnFilterCell field="Mobile" />
-                                                    <ColumnFilterCell field="AmountPaid" />
-                                                    <ColumnFilterCell field="COD" />
-                                                    <ColumnFilterCell field="OrderStatus" />
-                                                    <ColumnFilterCell field="CreatedAt" />
+                                                    <ColumnFilterCell {...columnFilterProps} field="id" />
+                                                    <ColumnFilterCell {...columnFilterProps} field="Name" />
+                                                    <ColumnFilterCell {...columnFilterProps} field="Mobile" />
+                                                    <ColumnFilterCell {...columnFilterProps} field="AmountPaid" />
+                                                    <ColumnFilterCell {...columnFilterProps} field="COD" />
+                                                    <ColumnFilterCell {...columnFilterProps} field="OrderStatus" />
+                                                    <ColumnFilterCell {...columnFilterProps} field="CreatedAt" />
+                                                    <ColumnFilterCell {...columnFilterProps} field="DeliveryEta" />
+                                                    <ColumnFilterCell {...columnFilterProps} field="InStock" />
                                                     <td className="border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30" />
                                                 </tr>
                                             )}
@@ -1252,6 +1285,22 @@ const AdminDashboard = () => {
                                                         <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700 whitespace-nowrap">
                                                             {formatDate(order.CreatedAt) || <span className="text-gray-400">—</span>}
                                                         </td>
+                                                        <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700 whitespace-nowrap">
+                                                            {formatDate(order.DeliveryEta) || <span className="text-gray-400">—</span>}
+                                                        </td>
+                                                        <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700">
+                                                            {order.InStock === null || order.InStock === undefined ? (
+                                                                <span className="text-gray-400">—</span>
+                                                            ) : (
+                                                                <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${
+                                                                    Number(order.InStock) === 1
+                                                                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                                                                        : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                                                                }`}>
+                                                                    {Number(order.InStock) === 1 ? 'True' : 'False'}
+                                                                </span>
+                                                            )}
+                                                        </td>
                                                         <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700">
                                                             <button
                                                                 onClick={() => setExpandedOrderId(isOpen ? null : id)}
@@ -1264,7 +1313,7 @@ const AdminDashboard = () => {
                                                     </tr>
                                                     {isOpen && (
                                                         <tr className="bg-gray-50 dark:bg-gray-900/40">
-                                                            <td colSpan="8" className="p-5 border border-gray-200 dark:border-gray-700">
+                                                            <td colSpan="10" className="p-5 border border-gray-200 dark:border-gray-700">
                                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                                                                     <div>
                                                                         <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Shipping Address</p>
@@ -1346,7 +1395,7 @@ const AdminDashboard = () => {
                                                 );
                                             }) : (
                                                 <tr>
-                                                    <td colSpan="8" className="p-8 text-center text-gray-500 border border-gray-200 dark:border-gray-700">
+                                                    <td colSpan="10" className="p-8 text-center text-gray-500 border border-gray-200 dark:border-gray-700">
                                                         {orders.length === 0 ? 'No orders yet.' : 'No orders match your filters.'}
                                                     </td>
                                                 </tr>

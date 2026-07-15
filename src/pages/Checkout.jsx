@@ -14,6 +14,16 @@ import {
 const COD_ADVANCE_AMOUNT = 100;
 import { useUser } from '../context/UserContext';
 
+// Mirrors the backend's computeDeliveryEta/ESTIMATED_DELIVERY_DAYS_* exactly
+// (Backend/backend.js) — an in-stock cart ships in 3 calendar days, otherwise 7.
+const ESTIMATED_DELIVERY_DAYS_IN_STOCK     = 3;
+const ESTIMATED_DELIVERY_DAYS_OUT_OF_STOCK = 7;
+const friendlyEtaFromToday = (inStock) => {
+    const d = new Date();
+    d.setDate(d.getDate() + (inStock ? ESTIMATED_DELIVERY_DAYS_IN_STOCK : ESTIMATED_DELIVERY_DAYS_OUT_OF_STOCK));
+    return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+};
+
 const Checkout = () => {
     const navigate = useNavigate();
     const { customOrderId } = useParams();
@@ -45,6 +55,7 @@ const Checkout = () => {
     const [payError, setPayError]               = useState('');
     const [isSavingDetails, setIsSavingDetails] = useState(false);
     const [pageLoading, setPageLoading]         = useState(true);
+    const [deliveryEtaPreview, setDeliveryEtaPreview] = useState(null);
 
     // ── Coupon state ──────────────────────────────────────────────────────────
     const [couponInput,    setCouponInput]    = useState('');
@@ -232,9 +243,19 @@ const Checkout = () => {
         if (step !== 3 || isCustomMode) return;
         refreshProducts().then(freshProducts => {
             syncCartWithCatalog(freshProducts);
+            const freshById = Object.fromEntries(freshProducts.map(p => [p.ID, p]));
+            const allInStock = cartItems.every(item => Number(freshById[item.id]?.InStock) === 1);
+            setDeliveryEtaPreview(friendlyEtaFromToday(allInStock));
         }).catch(() => {});
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [step]);
+
+    // Custom orders are made to order (no catalog stock), so they always use
+    // the longer estimate — same rule the backend applies at confirmation.
+    useEffect(() => {
+        if (step !== 3 || !isCustomMode) return;
+        setDeliveryEtaPreview(friendlyEtaFromToday(false));
+    }, [step, isCustomMode]);
 
     const handleRemoveCoupon = () => {
         setAppliedCoupon(null);
@@ -965,6 +986,12 @@ const Checkout = () => {
                                             {isFreeDelivery ? 'Free' : (deliveryCharge > 0 ? `₹${deliveryCharge}` : 'TBD')}
                                         </span>
                                     </div>
+                                    {deliveryEtaPreview && (
+                                        <div className="flex justify-between items-center text-gray-600 dark:text-gray-400">
+                                            <span>Estimated Delivery</span>
+                                            <span className="font-bold text-black dark:text-white">{deliveryEtaPreview}</span>
+                                        </div>
+                                    )}
 
                                     {appliedCoupon && (
                                         <div className="flex justify-between items-center text-green-600 dark:text-green-400">

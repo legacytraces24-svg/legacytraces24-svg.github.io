@@ -158,7 +158,15 @@ for the CORS fix below, but the owner chose to hold it too).
     with it (same active-verification path the modal flow already used)
     before showing the success banner and refreshing the list.
     Both #10 and #11 already deployed and live on non-prod.
-12. Deploy with:
+12. **Fixed: WhatsApp `orderDate`/`deliveredDate` sent as a raw ISO
+    timestamp** (e.g. `2026-07-15T14:23:01.234Z`) instead of a human-friendly
+    date — inconsistent with `eta`, which already used `toFriendlyDate()`.
+    All `order_confirmation`/`order_dispatched`/`order_delivered` WhatsApp
+    payloads (`postOrder`, `markOrderPaid`, `confirmCustomOrder`,
+    `applyOrderShippingUpdate`) now format these the same way as `eta`
+    (`toFriendlyDate`, e.g. `15 Jul 2026`). The now-unused `toIso()` helper
+    was removed. Already deployed and live on non-prod.
+13. Deploy with:
    ```bash
    cd Backend
    npx wrangler login    # sign in as legacytraces24@gmail.com

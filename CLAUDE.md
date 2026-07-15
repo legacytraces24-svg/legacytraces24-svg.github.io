@@ -212,6 +212,9 @@ for the CORS fix below, but the owner chose to hold it too).
   `loadOrders`/`loadCustomOrders` extracted out of their mount effects so a
   manual refresh reuses the same fetch-and-reindex logic instead of
   duplicating it
+- `da7066e` — Orders: explicitly sort both the regular and custom orders
+  lists by `created_at` descending on the client, so latest-first no longer
+  depends on row id happening to track creation recency
 - Deploy with: `git push origin main`, then `git checkout main && npm run
   build && npm run deploy`
 

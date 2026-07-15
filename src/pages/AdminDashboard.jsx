@@ -57,7 +57,9 @@ const ALL_ORDER_STATUSES = ['New', 'Processing', 'Ready to dispatch', 'Shipped',
 // compare against what the admin actually sees in the table (e.g. COD 'Yes'
 // reads as 'COD', a null status reads as 'New').
 const FILTER_FIELDS = {
-    id:              { label: 'Order ID',         type: 'number', get: o => Number(o.id) },
+    // id is text-typed (not number) so quick/column search does a substring
+    // match ("contains") like the rest of the columns, not exact numeric `=`.
+    id:              { label: 'Order ID',         type: 'text',   get: o => String(o.id) },
     Name:            { label: 'Customer Name',    type: 'text',   get: o => o.Name || '' },
     Email:           { label: 'Email',            type: 'text',   get: o => o.Email || '' },
     Mobile:          { label: 'Mobile',           type: 'text',   get: o => String(o.Mobile || '') },
@@ -67,21 +69,42 @@ const FILTER_FIELDS = {
     TrackingId:      { label: 'Tracking ID',      type: 'text',   get: o => o.TrackingId || '' },
     ShippingCompany: { label: 'Shipping Company', type: 'text',   get: o => o.ShippingCompany || '' },
     CfOrderId:       { label: 'CF Order ID',      type: 'text',   get: o => o.CfOrderId || '' },
+    CreatedAt:       { label: 'Created Date',      type: 'date',   get: o => o.CreatedAt   || '' },
+    ShippedAt:       { label: 'Shipped Date',      type: 'date',   get: o => o.ShippedAt   || '' },
+    DeliveredAt:     { label: 'Delivered Date',    type: 'date',   get: o => o.DeliveredAt || '' },
 };
 
 const OPERATORS_BY_TYPE = {
     text:   ['contains', 'does not contain', 'is', 'is not', 'starts with', 'ends with', 'is empty', 'is not empty'],
     number: ['=', '≠', '>', '≥', '<', '≤'],
     select: ['is', 'is not'],
+    date:   ['on', 'before', 'after', 'between', 'is empty', 'is not empty'],
 };
 
 const NO_VALUE_OPERATORS = ['is empty', 'is not empty'];
 
-const evalCondition = (order, { field, operator, value }) => {
+const evalCondition = (order, { field, operator, value, value2 }) => {
     const def = FILTER_FIELDS[field];
     if (!def) return true;
-    const raw = def.get(order);
+
+    if (def.type === 'date') {
+        // D1 timestamps start with 'YYYY-MM-DD', so plain string comparison
+        // against <input type="date"> values is already a correct date compare.
+        const raw = (def.get(order) || '').slice(0, 10);
+        if (operator === 'is empty')     return raw === '';
+        if (operator === 'is not empty') return raw !== '';
+        if (!raw) return false;
+        switch (operator) {
+            case 'on':      return raw === value;
+            case 'before':  return !!value  && raw < value;
+            case 'after':   return !!value  && raw > value;
+            case 'between': return (!value || raw >= value) && (!value2 || raw <= value2);
+            default:        return true;
+        }
+    }
+
     if (def.type === 'number') {
+        const raw = def.get(order);
         const target = Number(value);
         if (isNaN(target)) return true;
         switch (operator) {
@@ -94,7 +117,7 @@ const evalCondition = (order, { field, operator, value }) => {
             default:  return true;
         }
     }
-    const a = String(raw).toLowerCase();
+    const a = String(def.get(order)).toLowerCase();
     const b = String(value ?? '').toLowerCase();
     switch (operator) {
         case 'contains':         return a.includes(b);
@@ -108,8 +131,6 @@ const evalCondition = (order, { field, operator, value }) => {
         default:                 return true;
     }
 };
-
-const DATE_FILTER_FIELDS = { CreatedAt: 'Created', ShippedAt: 'Shipped', DeliveredAt: 'Delivered' };
 
 const CUSTOM_STATUSES = [
     'Pending Quote', 'Quoted', 'Accepted',
@@ -150,22 +171,21 @@ const AdminDashboard = () => {
     const [editState, setEditState] = useState({});
     const [savingId, setSavingId]   = useState(null);
 
-    // ── Orders table: search / filter / sort / pagination ─────────────────────
-    const [searchName,    setSearchName]    = useState('');
-    const [searchId,      setSearchId]      = useState('');
-    const [searchMobile,  setSearchMobile]  = useState('');
-    const [filterStatus,  setFilterStatus]  = useState('');
-    const [filterType,    setFilterType]    = useState(''); // '' | 'COD' | 'Prepaid'
+    // ── Orders table: unified ServiceNow-style filtering ───────────────────────
+    // Every filter — quick per-column search, the advanced condition builder,
+    // and summary-card clicks — all narrow down to the same `conditions`
+    // array (see FILTER_FIELDS/evalCondition above), so there's exactly one
+    // filtering model instead of separate parallel search boxes.
     // Clicking a summary/status card below narrows the table to that slice —
-    // click the same card again to clear it back to "all orders".
+    // click the same card again to clear it back to "all orders". Using the
+    // advanced/column filters clears any active card filter, and vice versa,
+    // so the two never combine confusingly.
     const [cardFilter,    setCardFilter]    = useState(null);
-    // Advanced (ServiceNow-style) condition builder + date range
     const [showAdvanced,  setShowAdvanced]  = useState(false);
-    const [conditions,    setConditions]    = useState([]);      // [{ field, operator, value }]
+    const [conditions,    setConditions]    = useState([]);      // [{ field, operator, value, value2? }]
     const [conditionJoin, setConditionJoin] = useState('AND');   // 'AND' | 'OR'
-    const [dateField,     setDateField]     = useState('CreatedAt');
-    const [dateFrom,      setDateFrom]      = useState('');
-    const [dateTo,        setDateTo]        = useState('');
+    // Which column's inline quick-search box is currently open (lens icon toggle)
+    const [columnSearchOpen, setColumnSearchOpen] = useState({}); // { [field]: true }
     const [sortCol,       setSortCol]       = useState('id');
     const [sortDir,       setSortDir]       = useState('desc');
     const [page,          setPage]          = useState(1);
@@ -334,15 +354,6 @@ const AdminDashboard = () => {
     // Predicate for whichever summary/status card is currently selected —
     // null means no card is active (show everything). 'orders'/'items' both
     // clear back to "all orders" since neither maps to a specific slice.
-    const CARD_FILTER_LABELS = {
-        revenue:         'Total Revenue (Shipped + Delivered)',
-        cod:             'COD orders',
-        prepaid:         'Prepaid orders',
-        new:             'New orders',
-        readyToDispatch: 'Ready to Dispatch orders',
-        shipped:         'Shipped orders',
-        delivered:       'Delivered orders',
-    };
     const matchesCardFilter = (o) => {
         switch (cardFilter) {
             case 'revenue':         return REVENUE_STATUSES.includes(o.OrderStatus);
@@ -355,8 +366,16 @@ const AdminDashboard = () => {
             default:                return true;
         }
     };
-    // Clicking the already-active card clears the filter instead of re-applying it.
-    const toggleCardFilter = (key) => { setCardFilter(prev => (prev === key ? null : key)); setPage(1); };
+    // Clicking the already-active card clears the filter instead of re-applying
+    // it. Clicking a card always shows exactly that card's slice — clear any
+    // leftover column/advanced conditions so the two filtering modes never
+    // silently combine.
+    const toggleCardFilter = (key) => {
+        setCardFilter(prev => (prev === key ? null : key));
+        setConditions([]);
+        setColumnSearchOpen({});
+        setPage(1);
+    };
 
     const handleOrderEdit = (id, field, value) =>
         setOrderEditState(prev => {
@@ -557,21 +576,8 @@ const AdminDashboard = () => {
             {activeTab === 'orders' && (
                 <>
                     {/* Summary Cards — click a card to filter the table below by that
-                        slice; click it again (or "Clear filter") to go back to all orders. */}
-                    {cardFilter && (
-                        <div className="flex items-center gap-2 mb-4 text-sm">
-                            <span className="text-gray-500 dark:text-gray-400">Showing:</span>
-                            <span className="px-2.5 py-1 rounded-full bg-primary/10 text-primary font-semibold">
-                                {CARD_FILTER_LABELS[cardFilter]}
-                            </span>
-                            <button
-                                onClick={() => toggleCardFilter(cardFilter)}
-                                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 underline"
-                            >
-                                Clear filter
-                            </button>
-                        </div>
-                    )}
+                        slice (shown via each card's own highlighted border); click it
+                        again to go back to all orders. */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
                         <button
                             type="button"
@@ -688,27 +694,26 @@ const AdminDashboard = () => {
                     {(() => {
                         // A condition whose operator needs a value but has none typed yet is
                         // incomplete — skip it so a half-built row doesn't blank out the table.
+                        // value2 also counts on its own (a "between" with only the "to" side
+                        // filled in, e.g. via the column date-range search, is still valid).
                         const activeConditions = conditions.filter(c =>
                             c.field && c.operator &&
-                            (NO_VALUE_OPERATORS.includes(c.operator) || String(c.value ?? '').trim() !== ''));
+                            (NO_VALUE_OPERATORS.includes(c.operator) ||
+                             String(c.value ?? '').trim() !== '' || String(c.value2 ?? '').trim() !== ''));
                         const matchesConditions = (o) =>
                             activeConditions.length === 0 ||
                             (conditionJoin === 'AND'
                                 ? activeConditions.every(c => evalCondition(o, c))
                                 : activeConditions.some(c => evalCondition(o, c)));
-                        // D1 timestamps start with 'YYYY-MM-DD', so string comparison against
-                        // the <input type="date"> values is a correct date comparison.
-                        const matchesDateRange = (o) => {
-                            if (!dateFrom && !dateTo) return true;
-                            const d = (o[dateField] || '').slice(0, 10);
-                            if (!d) return false;
-                            if (dateFrom && d < dateFrom) return false;
-                            if (dateTo && d > dateTo) return false;
-                            return true;
-                        };
 
-                        const addCondition = () =>
-                            setConditions(prev => [...prev, { field: 'Name', operator: 'contains', value: '' }]);
+                        // Advanced-panel condition builder — editing here always means the
+                        // admin is doing detailed filtering, so drop any card-click filter
+                        // to avoid the two combining confusingly.
+                        const addCondition = () => {
+                            setConditions(prev => [...prev, { field: 'Name', operator: 'contains', value: '', value2: '' }]);
+                            setCardFilter(null);
+                            setPage(1);
+                        };
                         const updateCondition = (i, patch) => {
                             setConditions(prev => prev.map((c, j) => {
                                 if (j !== i) return c;
@@ -718,34 +723,72 @@ const AdminDashboard = () => {
                                 if (patch.field && patch.field !== c.field) {
                                     next.operator = OPERATORS_BY_TYPE[FILTER_FIELDS[patch.field].type][0];
                                     next.value = '';
+                                    next.value2 = '';
                                 }
+                                if (patch.operator && patch.operator !== 'between') next.value2 = '';
                                 return next;
                             }));
+                            setCardFilter(null);
                             setPage(1);
                         };
                         const removeCondition = (i) => {
                             setConditions(prev => prev.filter((_, j) => j !== i));
                             setPage(1);
                         };
-                        const clearAllFilters = () => {
-                            setSearchId(''); setSearchName(''); setSearchMobile('');
-                            setFilterStatus(''); setFilterType(''); setCardFilter(null);
-                            setConditions([]); setDateFrom(''); setDateTo('');
+
+                        // Column-header quick search (lens icon) — writes into the same
+                        // `conditions` array as the advanced builder, so the admin can open
+                        // Advanced at any point and continue refining exactly what they typed.
+                        const columnConditionIndex = (field) => conditions.findIndex(c => c.field === field);
+                        const setColumnSearchValue = (field, value) => {
+                            setConditions(prev => {
+                                const idx = prev.findIndex(c => c.field === field);
+                                if (idx === -1) {
+                                    if (!value) return prev;
+                                    const def = FILTER_FIELDS[field];
+                                    return [...prev, { field, operator: OPERATORS_BY_TYPE[def.type][0], value, value2: '' }];
+                                }
+                                if (!value) return prev.filter((_, j) => j !== idx);
+                                return prev.map((c, j) => j === idx ? { ...c, value } : c);
+                            });
+                            setCardFilter(null);
                             setPage(1);
                         };
-                        const anyFilterActive = searchId || searchName || searchMobile || filterStatus ||
-                            filterType || cardFilter || conditions.length > 0 || dateFrom || dateTo;
+                        // Date columns search as a range (from/to) rather than a single value.
+                        const setColumnDateRange = (field, which, value) => {
+                            setConditions(prev => {
+                                const idx = prev.findIndex(c => c.field === field);
+                                if (idx === -1) {
+                                    if (!value) return prev;
+                                    return [...prev, {
+                                        field, operator: 'between',
+                                        value:  which === 'from' ? value : '',
+                                        value2: which === 'to'   ? value : '',
+                                    }];
+                                }
+                                const updated = { ...prev[idx], operator: 'between' };
+                                if (which === 'from') updated.value = value; else updated.value2 = value;
+                                if (!updated.value && !updated.value2) return prev.filter((_, j) => j !== idx);
+                                return prev.map((c, j) => j === idx ? updated : c);
+                            });
+                            setCardFilter(null);
+                            setPage(1);
+                        };
+                        const toggleColumnSearch = (field) =>
+                            setColumnSearchOpen(prev => ({ ...prev, [field]: !prev[field] }));
+
+                        const clearAllFilters = () => {
+                            setCardFilter(null);
+                            setConditions([]);
+                            setColumnSearchOpen({});
+                            setPage(1);
+                        };
+                        const anyFilterActive = !!cardFilter || conditions.length > 0;
 
                         // Derived filtered + sorted + paginated list (computed inline to access state)
                         const filtered = orders
                             .filter(matchesCardFilter)
-                            .filter(o => !searchId   || String(o.id).includes(searchId.trim()))
-                            .filter(o => !searchName || (o.Name || '').toLowerCase().includes(searchName.toLowerCase()))
-                            .filter(o => !searchMobile || String(o.Mobile || '').includes(searchMobile.trim()))
-                            .filter(o => !filterStatus || (o.OrderStatus || 'New') === filterStatus)
-                            .filter(o => !filterType  || (filterType === 'COD' ? o.COD === 'Yes' : o.COD !== 'Yes'))
                             .filter(matchesConditions)
-                            .filter(matchesDateRange)
                             .sort((a, b) => {
                                 let av, bv;
                                 if (sortCol === 'id')     { av = a.id;           bv = b.id; }
@@ -774,6 +817,95 @@ const AdminDashboard = () => {
                             setPage(1);
                         };
 
+                        // ServiceNow-style column header: a lens icon on the left toggles an
+                        // inline search box for that column, shown in the filter row directly
+                        // beneath the header row. `sortKey` wires up the existing click-to-sort
+                        // label; `filterField` is the FILTER_FIELDS key this column searches.
+                        const ColumnHeader = ({ children, sortKey, filterField }) => (
+                            <th className="py-1.5 px-2.5 font-medium border border-gray-200 dark:border-gray-700">
+                                <div className="flex items-center gap-1">
+                                    {filterField && (
+                                        <button
+                                            onClick={() => toggleColumnSearch(filterField)}
+                                            className={`p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 ${
+                                                columnSearchOpen[filterField] || columnConditionIndex(filterField) !== -1
+                                                    ? 'text-primary' : 'text-gray-400'
+                                            }`}
+                                            title={`Search ${FILTER_FIELDS[filterField].label}`}
+                                        >
+                                            <Search size={12} />
+                                        </button>
+                                    )}
+                                    {sortKey ? (
+                                        <button onClick={() => toggleSort(sortKey)} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100">
+                                            {children} <SortIcon col={sortKey} />
+                                        </button>
+                                    ) : children}
+                                </div>
+                            </th>
+                        );
+
+                        // Inline filter-row cell rendered directly under a ColumnHeader —
+                        // blank (but same row height) when that column's search isn't open.
+                        // Writes straight into the shared `conditions` array via
+                        // setColumnSearchValue/setColumnDateRange, so it's the exact same
+                        // filter the Advanced panel edits — either entry point can continue
+                        // refining what the other started.
+                        const ColumnFilterCell = ({ field }) => {
+                            const def = FILTER_FIELDS[field];
+                            const idx = columnConditionIndex(field);
+                            const cond = idx !== -1 ? conditions[idx] : null;
+                            if (!columnSearchOpen[field]) {
+                                return <td className="border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30" />;
+                            }
+                            if (def.type === 'select') {
+                                return (
+                                    <td className="p-1 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30">
+                                        <select
+                                            value={cond?.value || ''}
+                                            onChange={ev => setColumnSearchValue(field, ev.target.value)}
+                                            className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded px-1.5 py-1 focus:ring-primary focus:border-primary"
+                                        >
+                                            <option value="">Any</option>
+                                            {def.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                        </select>
+                                    </td>
+                                );
+                            }
+                            if (def.type === 'date') {
+                                return (
+                                    <td className="p-1 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30">
+                                        <div className="flex items-center gap-1">
+                                            <input
+                                                type="date"
+                                                value={cond?.value || ''}
+                                                onChange={ev => setColumnDateRange(field, 'from', ev.target.value)}
+                                                className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded px-1 py-1 focus:outline-none focus:ring-1 focus:ring-primary"
+                                            />
+                                            <input
+                                                type="date"
+                                                value={cond?.value2 || ''}
+                                                onChange={ev => setColumnDateRange(field, 'to', ev.target.value)}
+                                                className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded px-1 py-1 focus:outline-none focus:ring-1 focus:ring-primary"
+                                            />
+                                        </div>
+                                    </td>
+                                );
+                            }
+                            return (
+                                <td className="p-1 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30">
+                                    <input
+                                        type={def.type === 'number' ? 'number' : 'text'}
+                                        value={cond?.value || ''}
+                                        onChange={ev => setColumnSearchValue(field, ev.target.value)}
+                                        placeholder="Search…"
+                                        className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-primary"
+                                    />
+                                </td>
+                            );
+                        };
+                        const anyColumnSearchOpen = Object.values(columnSearchOpen).some(Boolean);
+
                         return (
                             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
                                 {/* Table header + filters */}
@@ -797,68 +929,23 @@ const AdminDashboard = () => {
                                         </div>
                                     </div>
 
-                                    {/* Column-level search + advanced filters */}
+                                    {/* Per-column search lives in the table header itself (click the
+                                        lens icon on any column) — this bar is just the advanced
+                                        multi-condition builder and bulk actions. */}
                                     <div className="flex flex-wrap gap-2">
-                                        <div className="relative">
-                                            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                                            <input
-                                                type="text"
-                                                placeholder="Order ID…"
-                                                value={searchId}
-                                                onChange={e => { setSearchId(e.target.value); setPage(1); }}
-                                                className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-sm rounded-lg pl-7 pr-3 py-1.5 w-28 focus:outline-none focus:ring-1 focus:ring-primary"
-                                            />
-                                        </div>
-                                        <div className="relative">
-                                            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                                            <input
-                                                type="text"
-                                                placeholder="Customer name…"
-                                                value={searchName}
-                                                onChange={e => { setSearchName(e.target.value); setPage(1); }}
-                                                className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-sm rounded-lg pl-7 pr-3 py-1.5 w-44 focus:outline-none focus:ring-1 focus:ring-primary"
-                                            />
-                                        </div>
-                                        <div className="relative">
-                                            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                                            <input
-                                                type="text"
-                                                placeholder="Phone number…"
-                                                value={searchMobile}
-                                                onChange={e => { setSearchMobile(e.target.value); setPage(1); }}
-                                                className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-sm rounded-lg pl-7 pr-3 py-1.5 w-36 focus:outline-none focus:ring-1 focus:ring-primary"
-                                            />
-                                        </div>
-                                        <select
-                                            value={filterStatus}
-                                            onChange={e => { setFilterStatus(e.target.value); setPage(1); }}
-                                            className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-sm rounded-lg px-3 py-1.5 focus:ring-primary focus:border-primary"
-                                        >
-                                            <option value="">All Statuses</option>
-                                            {ALL_ORDER_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                                        </select>
-                                        <select
-                                            value={filterType}
-                                            onChange={e => { setFilterType(e.target.value); setPage(1); }}
-                                            className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-sm rounded-lg px-3 py-1.5 focus:ring-primary focus:border-primary"
-                                        >
-                                            <option value="">All Types</option>
-                                            <option value="COD">COD</option>
-                                            <option value="Prepaid">Prepaid</option>
-                                        </select>
                                         <button
                                             onClick={() => setShowAdvanced(s => !s)}
                                             className={`text-xs font-semibold flex items-center gap-1 px-2 py-1.5 border rounded-lg transition-colors ${
-                                                showAdvanced || activeConditions.length > 0 || dateFrom || dateTo
+                                                showAdvanced || activeConditions.length > 0
                                                     ? 'text-primary border-primary/40 bg-primary/5'
                                                     : 'text-gray-500 border-gray-200 dark:border-gray-700 hover:text-gray-700 dark:hover:text-gray-300'
                                             }`}
-                                            title="Multi-field condition filters and date range"
+                                            title="Multi-field condition filters"
                                         >
                                             <SlidersHorizontal size={12} /> Advanced
-                                            {(activeConditions.length > 0 || dateFrom || dateTo) && (
+                                            {activeConditions.length > 0 && (
                                                 <span className="bg-primary text-black text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none">
-                                                    {activeConditions.length + ((dateFrom || dateTo) ? 1 : 0)}
+                                                    {activeConditions.length}
                                                 </span>
                                             )}
                                             {showAdvanced ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
@@ -956,6 +1043,26 @@ const AdminDashboard = () => {
                                                                     <option value="">— select —</option>
                                                                     {def.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                                                                 </select>
+                                                            ) : def.type === 'date' ? (
+                                                                <>
+                                                                    <input
+                                                                        type="date"
+                                                                        value={c.value}
+                                                                        onChange={ev => updateCondition(i, { value: ev.target.value })}
+                                                                        className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
+                                                                    />
+                                                                    {c.operator === 'between' && (
+                                                                        <>
+                                                                            <span className="text-xs text-gray-400">to</span>
+                                                                            <input
+                                                                                type="date"
+                                                                                value={c.value2 || ''}
+                                                                                onChange={ev => updateCondition(i, { value2: ev.target.value })}
+                                                                                className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
+                                                                            />
+                                                                        </>
+                                                                    )}
+                                                                </>
                                                             ) : (
                                                                 <input
                                                                     type={def.type === 'number' ? 'number' : 'text'}
@@ -983,41 +1090,6 @@ const AdminDashboard = () => {
                                             >
                                                 <Plus size={13} /> Add condition
                                             </button>
-
-                                            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-200 dark:border-gray-700">
-                                                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">Date range:</span>
-                                                <select
-                                                    value={dateField}
-                                                    onChange={e => { setDateField(e.target.value); setPage(1); }}
-                                                    className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded-lg px-2 py-1.5 focus:ring-primary focus:border-primary"
-                                                >
-                                                    {Object.entries(DATE_FILTER_FIELDS).map(([k, label]) => (
-                                                        <option key={k} value={k}>{label} date</option>
-                                                    ))}
-                                                </select>
-                                                <input
-                                                    type="date"
-                                                    value={dateFrom}
-                                                    onChange={e => { setDateFrom(e.target.value); setPage(1); }}
-                                                    className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
-                                                />
-                                                <span className="text-xs text-gray-400">to</span>
-                                                <input
-                                                    type="date"
-                                                    value={dateTo}
-                                                    onChange={e => { setDateTo(e.target.value); setPage(1); }}
-                                                    className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
-                                                />
-                                                {(dateFrom || dateTo) && (
-                                                    <button
-                                                        onClick={() => { setDateFrom(''); setDateTo(''); setPage(1); }}
-                                                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
-                                                        title="Clear date range"
-                                                    >
-                                                        <X size={13} />
-                                                    </button>
-                                                )}
-                                            </div>
                                         </div>
                                     )}
                                 </div>
@@ -1070,35 +1142,27 @@ const AdminDashboard = () => {
                                     <table className="w-full text-left border-collapse text-sm">
                                         <thead>
                                             <tr className="bg-gray-50 dark:bg-gray-900/50 text-gray-500 dark:text-gray-400">
-                                                <th className="py-1.5 px-2.5 font-medium border border-gray-200 dark:border-gray-700">
-                                                    <button onClick={() => toggleSort('id')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100">
-                                                        Order ID <SortIcon col="id" />
-                                                    </button>
-                                                </th>
-                                                <th className="py-1.5 px-2.5 font-medium border border-gray-200 dark:border-gray-700">
-                                                    <button onClick={() => toggleSort('name')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100">
-                                                        Customer <SortIcon col="name" />
-                                                    </button>
-                                                </th>
-                                                <th className="py-1.5 px-2.5 font-medium border border-gray-200 dark:border-gray-700">Mobile</th>
-                                                <th className="py-1.5 px-2.5 font-medium border border-gray-200 dark:border-gray-700">
-                                                    <button onClick={() => toggleSort('amount')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100">
-                                                        Amount <SortIcon col="amount" />
-                                                    </button>
-                                                </th>
-                                                <th className="py-1.5 px-2.5 font-medium border border-gray-200 dark:border-gray-700">Type</th>
-                                                <th className="py-1.5 px-2.5 font-medium border border-gray-200 dark:border-gray-700">
-                                                    <button onClick={() => toggleSort('status')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100">
-                                                        Status <SortIcon col="status" />
-                                                    </button>
-                                                </th>
-                                                <th className="py-1.5 px-2.5 font-medium border border-gray-200 dark:border-gray-700">
-                                                    <button onClick={() => toggleSort('created')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-gray-100">
-                                                        Created <SortIcon col="created" />
-                                                    </button>
-                                                </th>
+                                                <ColumnHeader sortKey="id" filterField="id">Order ID</ColumnHeader>
+                                                <ColumnHeader sortKey="name" filterField="Name">Customer</ColumnHeader>
+                                                <ColumnHeader filterField="Mobile">Mobile</ColumnHeader>
+                                                <ColumnHeader sortKey="amount" filterField="AmountPaid">Amount</ColumnHeader>
+                                                <ColumnHeader filterField="COD">Type</ColumnHeader>
+                                                <ColumnHeader sortKey="status" filterField="OrderStatus">Status</ColumnHeader>
+                                                <ColumnHeader sortKey="created" filterField="CreatedAt">Created</ColumnHeader>
                                                 <th className="py-1.5 px-2.5 font-medium border border-gray-200 dark:border-gray-700">Details</th>
                                             </tr>
+                                            {anyColumnSearchOpen && (
+                                                <tr className="bg-gray-50 dark:bg-gray-900/30">
+                                                    <ColumnFilterCell field="id" />
+                                                    <ColumnFilterCell field="Name" />
+                                                    <ColumnFilterCell field="Mobile" />
+                                                    <ColumnFilterCell field="AmountPaid" />
+                                                    <ColumnFilterCell field="COD" />
+                                                    <ColumnFilterCell field="OrderStatus" />
+                                                    <ColumnFilterCell field="CreatedAt" />
+                                                    <td className="border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30" />
+                                                </tr>
+                                            )}
                                         </thead>
                                         <tbody>
                                             {paginated.length > 0 ? paginated.map(order => {

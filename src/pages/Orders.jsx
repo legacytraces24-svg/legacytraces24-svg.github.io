@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useUser } from '../context/UserContext';
-import { fetchMyOrders, getMyCustomOrders, postComment } from '../api/api';
+import { fetchMyOrders, getMyCustomOrders, postComment, checkPaymentStatus } from '../api/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link, useNavigate, useLocation, useSearchParams, useParams } from 'react-router-dom';
 import {
@@ -372,19 +372,47 @@ const Orders = () => {
     // the feedback block just stays hidden instead of re-showing this note.
     const [feedbackJustSubmitted, setFeedbackJustSubmitted] = useState(false);
 
+    // Bumped after the redirect handler below actively verifies a payment, so
+    // the orders-fetch effect (keyed only on idToken, which doesn't change
+    // here) re-runs and picks up the now-confirmed status.
+    const [refreshKey, setRefreshKey] = useState(0);
+
     // Cashfree redirect handler — Cashfree appends ?order_status=PAID|CANCELLED|ACTIVE
     // to return_url after redirect-based payments (net banking, some UPI apps).
+    // Unlike the in-page checkout modal flow (which polls checkPaymentStatus
+    // before ever showing success), a redirect-based payment never runs any
+    // JS on our page until Cashfree sends the browser back here — so nothing
+    // has actively confirmed the payment with our backend yet. Trusting the
+    // order_status param alone and just waiting on the webhook meant the order
+    // could still show as "Pending Payment" (or, on a fresh page load right
+    // after redirect, appear to not have refreshed at all) for however long
+    // the webhook took to land. verifyOrderId (added to return_url alongside
+    // the order itself) lets us call the same active-verification path the
+    // modal flow uses, so the order is actually finalized before we navigate.
     useEffect(() => {
         const cfStatus = searchParams.get('order_status');
         if (!cfStatus) return;
-        if (cfStatus === 'PAID') {
-            // Remove query params, show the success banner via router state
-            navigate('/orders', { replace: true, state: { orderPlaced: true } });
-        } else {
+        if (cfStatus !== 'PAID') {
             // CANCELLED, ACTIVE (incomplete), EXPIRED — go back to checkout to retry
             navigate('/checkout', { replace: true });
+            return;
         }
-    }, [searchParams, navigate]);
+        const verifyOrderId = searchParams.get('verifyOrderId');
+        if (!verifyOrderId) {
+            // Older/plain return link with nothing to verify against — just
+            // show the success banner and let the webhook confirm it.
+            navigate('/orders', { replace: true, state: { orderPlaced: true } });
+            return;
+        }
+        if (!user?.idToken) return; // wait for the session to restore, then retry
+
+        checkPaymentStatus({ idToken: user.idToken, orderId: verifyOrderId })
+            .catch(() => {})
+            .finally(() => {
+                navigate('/orders', { replace: true, state: { orderPlaced: true } });
+                setRefreshKey(k => k + 1);
+            });
+    }, [searchParams, navigate, user?.idToken]);
 
     useEffect(() => {
         if (!user?.idToken) return;
@@ -400,7 +428,7 @@ const Orders = () => {
             }
         };
         fetchOrders();
-    }, [user?.idToken]);
+    }, [user?.idToken, refreshKey]);
 
     // Reset the just-submitted flag whenever a different order is opened,
     // so the confirmation note doesn't leak onto an unrelated order.

@@ -250,6 +250,25 @@ with `200` (see `paymentWebhook`'s comment), so Cashfree never retries a
 delivery it already made — the only lag being protected against is the
 normal one-time delivery latency of the *first* attempt.
 
+**Second follow-up, same day — active verification instead of a timer:**
+`initPayment`/`initCodPayment` now call a new `resolvePriorPendingPayment()`
+at the start of every retry, *before* creating a new Cashfree order. It
+queries Cashfree directly for the prior attempt's real status:
+- `PAID` → the "abandoned" attempt actually succeeded — `markOrderPaid()` is
+  called immediately and the endpoint returns `{ alreadyPaid: true }`
+  instead of a new `payment_session_id`. `Checkout.jsx` recognizes this and
+  skips opening a second payment modal entirely, going straight to the
+  orders page — no redundant charge is ever started.
+- `ACTIVE` / `EXPIRED` / `CANCELLED` → Cashfree confirms nothing will ever
+  come of that attempt (no webhook is coming) — the row is hard-deleted
+  outright, keeping exactly one `payments` row per order in the common case.
+- Cashfree unreachable → no-op; the 10-minute soft-delete/reuse logic above
+  is the fallback, so nothing is ever deleted on a guess.
+
+This replaces the timer as the *primary* mechanism (ground truth over a
+heuristic) while keeping the timer as a safety net for when Cashfree itself
+can't be reached.
+
 Also fixed in the same change: the webhook only ever recognized
 `payment_status` values of `"SUCCESS"` or `"FAILED"` — Cashfree's
 `PAYMENT_USER_DROPPED_WEBHOOK` event (fired when a customer abandons the

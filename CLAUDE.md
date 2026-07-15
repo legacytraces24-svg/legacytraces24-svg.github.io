@@ -40,11 +40,18 @@ for the CORS fix below, but the owner chose to hold it too).
    `payments.is_deleted` column — requires running
    `schema_payments_soft_delete.sql` against prod D1 first, see below).
    **Must ship in the same push as item 1**, not after — turning the webhook
-   on without this fix reintroduces a way to lose payments. Refined further
-   the same day: a prior attempt is only preserved (soft-deleted) while it's
-   < 10 minutes old (its webhook could still be in flight) — past that, a
-   retry reuses the same row instead of accumulating one per abandoned
-   attempt.
+   on without this fix reintroduces a way to lose payments. Refined twice
+   further the same day: (a) a prior attempt is only preserved (soft-deleted)
+   while it's < 10 minutes old (its webhook could still be in flight) — past
+   that, a retry reuses the same row; (b) `initPayment`/`initCodPayment` now
+   actively verify a retry's prior attempt with Cashfree directly
+   (`resolvePriorPendingPayment`) before starting a new charge — if it
+   already succeeded, the order is confirmed immediately and the frontend
+   skips opening a second payment modal (`alreadyPaid` response); if
+   Cashfree confirms it's dead (`ACTIVE`/`EXPIRED`/`CANCELLED`), the row is
+   hard-deleted outright. This is now the primary mechanism (ground truth,
+   not a heuristic); the 10-minute timer is the fallback for when Cashfree
+   itself can't be reached.
 4. **`USER_DROPPED` now treated as a terminal failure** in `paymentWebhook`
    — previously only `SUCCESS`/`FAILED` were recognized, so an abandoned
    payment (customer closes the Cashfree modal) fell through to `PENDING`

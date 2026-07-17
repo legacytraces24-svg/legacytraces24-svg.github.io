@@ -4,7 +4,7 @@ import { useUser } from '../context/UserContext';
 import {
     fetchAdminOrders, updateOrderStatus,
     getAdminCustomOrders, updateCustomQuote,
-    saveCustomer
+    saveCustomer, verifyOrdersPaymentStatus
 } from '../api/api';
 import { GoogleLogin } from '@react-oauth/google';
 import { jwtDecode } from 'jwt-decode';
@@ -12,7 +12,7 @@ import {
     Package, DollarSign, ShoppingCart,
     CreditCard, Truck, RefreshCcw, CheckCircle, Shirt, Eye, X,
     ChevronUp, ChevronDown, ChevronsUpDown, Search, ChevronLeft, ChevronRight,
-    MessageCircle, Printer, FileText, FileType, SlidersHorizontal, Plus
+    MessageCircle, Printer, FileText, FileType, SlidersHorizontal, Plus, ShieldCheck
 } from 'lucide-react';
 import { SENDER, exportLabelsAsPdf, exportLabelsAsWord } from '../utils/shippingLabels';
 
@@ -306,6 +306,8 @@ const AdminDashboard = () => {
     const [pageSize,      setPageSize]      = useState(20);
     const [showExportMenu, setShowExportMenu] = useState(false);
     const [exporting,      setExporting]      = useState(false);
+    const [verifyingPayments, setVerifyingPayments] = useState(false);
+    const [verifyResultMsg,   setVerifyResultMsg]   = useState('');
 
     // Expandable row detail (address, product list, tracking/shipping edit)
     const [expandedOrderId,  setExpandedOrderId]  = useState(null);
@@ -954,6 +956,33 @@ const AdminDashboard = () => {
                         const columnFilterProps = { columnSearchOpen, conditions, columnConditionIndex, setColumnSearchValue, setColumnDateRange };
                         const anyColumnSearchOpen = Object.values(columnSearchOpen).some(Boolean);
 
+                        // "Customer says they paid but it still shows Pending
+                        // Payment/Payment Failed" case — only these two statuses
+                        // are ever eligible, and only among the orders currently
+                        // matching the admin's filter, never the whole table.
+                        const eligibleForVerify = filtered.filter(
+                            o => o.OrderStatus === 'Pending Payment' || o.OrderStatus === 'Payment Failed'
+                        );
+                        const handleVerifyFilteredPayments = async () => {
+                            if (!eligibleForVerify.length || verifyingPayments) return;
+                            setVerifyingPayments(true);
+                            setVerifyResultMsg('');
+                            try {
+                                const res = await verifyOrdersPaymentStatus(user.idToken, eligibleForVerify.map(o => o.id));
+                                const updatedCount = (res?.results || []).filter(r => r.updated).length;
+                                setVerifyResultMsg(
+                                    updatedCount > 0
+                                        ? `${updatedCount} of ${eligibleForVerify.length} confirmed paid and updated to New.`
+                                        : `Checked ${eligibleForVerify.length} order(s) — none were actually paid yet.`
+                                );
+                                if (updatedCount > 0) await loadOrders();
+                            } catch {
+                                setVerifyResultMsg('Could not verify payment status. Please try again.');
+                            } finally {
+                                setVerifyingPayments(false);
+                            }
+                        };
+
                         return (
                             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
                                 {/* Table header + filters */}
@@ -1050,7 +1079,19 @@ const AdminDashboard = () => {
                                                 </>
                                             )}
                                         </div>
+                                        <button
+                                            onClick={handleVerifyFilteredPayments}
+                                            disabled={eligibleForVerify.length === 0 || verifyingPayments}
+                                            className="text-xs font-semibold text-primary hover:brightness-90 flex items-center gap-1 px-2 py-1.5 border border-primary/40 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
+                                            title="Re-check each filtered Pending Payment / Payment Failed order directly against Cashfree, and mark it paid if it actually went through"
+                                        >
+                                            <ShieldCheck size={12} className={verifyingPayments ? 'animate-pulse' : ''} />
+                                            {verifyingPayments ? 'Verifying…' : `Verify Status (${eligibleForVerify.length})`}
+                                        </button>
                                     </div>
+                                    {verifyResultMsg && (
+                                        <p className="text-xs text-gray-500 dark:text-gray-400">{verifyResultMsg}</p>
+                                    )}
 
                                     {/* Advanced condition builder + date range (ServiceNow-style) */}
                                     {showAdvanced && (

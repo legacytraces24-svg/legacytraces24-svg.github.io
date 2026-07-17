@@ -165,6 +165,12 @@ export const fetchAdminOrders = async (idToken) => {
 export const updateOrderStatus = async (idToken, orderId, status, trackingId, shippingCompany, shippedAt, deliveredAt) =>
     post('updateStatus', { idToken, orderId, status, trackingId, shippingCompany, shippedAt, deliveredAt });
 
+// Admin only — re-checks each given order directly against Cashfree and flips
+// it to paid if Cashfree confirms PAID; orders not in Pending Payment/Payment
+// Failed, or not in this list, are left untouched. Returns a per-order result.
+export const verifyOrdersPaymentStatus = async (idToken, orderIds) =>
+    post('adminVerifyOrdersPayment', { idToken, orderIds });
+
 // ── Addresses ────────────────────────────────────────────────────────────────
 
 export const addAddress = ({ idToken, label, address, pincode, isDefault }) =>

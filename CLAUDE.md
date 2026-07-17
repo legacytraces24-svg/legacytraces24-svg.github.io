@@ -10,7 +10,7 @@ account/remote is currently active*.
 
 ## ✅ Deployment status
 
-As of 2026-07-17, **prod and non-prod are in sync** — everything through the
+As of 2026-07-18, **prod and non-prod are in sync** — everything through the
 admin "Verify Status" feature (Cashfree webhook CORS fix, payments
 soft-delete + active retry verification, `USER_DROPPED` handling, duplicate
 admin-order fix, stock-based delivery ETA + real stock decrementing,
@@ -21,6 +21,19 @@ the per-order `in_stock` boolean + working-day ETA calculation, and the
 `adminVerifyOrdersPayment` bulk payment re-check) is deployed and verified
 on **both** `origin` (prod) and `neworg` (non-prod). `main` and
 `import-latest` are both current with no unpushed commits.
+
+**Bug fixed the same day, in both environments:** `markOrderPaid`'s atomic
+claim (`Backend/backend.js`) only matched `order_status = 'Pending Payment'`,
+so any order sitting at `Payment Failed` silently failed to transition to
+`New` even when Cashfree confirmed it was actually paid — the `UPDATE`
+matched zero rows, but every caller (webhook, polling, and the new admin
+Verify Status) had no way to know that and reported success anyway. Surfaced
+as: admin clicks Verify Status, sees "N confirmed paid and updated to New,"
+but the order's status never actually changes. Fixed by widening the claim
+to `order_status IN ('Pending Payment', 'Payment Failed')` — safe because
+every caller only ever invokes `markOrderPaid` after Cashfree has already
+confirmed PAID, so broadening which prior states are eligible to transition
+doesn't weaken the atomicity guarantee, just what states it applies to.
 
 Full history of *why* each change was made lives in git log / commit
 messages, not here — this file only tracks current topology and open items.

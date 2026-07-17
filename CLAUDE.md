@@ -8,36 +8,19 @@ or `.env.production` — the two environments look identical at a glance
 (same Worker name, same D1 name) and are only distinguished by *which
 account/remote is currently active*.
 
-## ⚠ Deployment status
+## ✅ Deployment status
 
-As of 2026-07-17, everything through the 2026-07-16 work (Cashfree webhook
-CORS fix, payments soft-delete + active retry verification, `USER_DROPPED`
-handling, duplicate admin-order fix, stock-based delivery ETA + real stock
-decrementing, stale-cart reconciliation at checkout, the `markOrderPaid`
-atomic race fix, mobile redirect-payment verification, WhatsApp date
-formatting, the admin orders Refresh button + column-search cursor-focus
-fix, `created_at` sort, the per-order `in_stock` boolean + working-day ETA
-calculation) is deployed and verified on **both** `origin` (prod) and
-`neworg` (non-prod).
-
-**One item is intentionally non-prod-only right now, held per the project
-owner ("implement in non-prod, then we can move to prod"):**
-- **Admin "Verify Status" button** (`adminVerifyOrdersPayment` backend
-  endpoint + `AdminDashboard.jsx`) — for orders stuck at `Pending Payment`/
-  `Payment Failed` despite the customer having actually paid. Filters the
-  admin orders table down to the orders in question, then re-checks each one
-  directly against Cashfree's `GET /orders` and flips it to `New` only if
-  Cashfree confirms `PAID` right now — reuses `markOrderPaid` so it's
-  consistent with the webhook/polling paths. Only touches orders in the
-  current filter, and only if still `Pending Payment`/`Payment Failed`;
-  nothing else in the table is touched. Deployed and verified on non-prod
-  only (`git log origin/main..main` will show 1 commit ahead until this
-  moves to prod — deploy with `wrangler deploy` no `--env` flag, then
-  `git push origin main && npm run build && npm run deploy`, once given the
-  go-ahead).
-
-Full history of *why* each change was made lives in git log / commit
-messages, not here — this file only tracks current topology and open items.
+As of 2026-07-17, **prod and non-prod are in sync** — everything through the
+admin "Verify Status" feature (Cashfree webhook CORS fix, payments
+soft-delete + active retry verification, `USER_DROPPED` handling, duplicate
+admin-order fix, stock-based delivery ETA + real stock decrementing,
+stale-cart reconciliation at checkout, the `markOrderPaid` atomic race fix,
+mobile redirect-payment verification, WhatsApp date formatting, the admin
+orders Refresh button + column-search cursor-focus fix, `created_at` sort,
+the per-order `in_stock` boolean + working-day ETA calculation, and the
+`adminVerifyOrdersPayment` bulk payment re-check) is deployed and verified
+on **both** `origin` (prod) and `neworg` (non-prod). `main` and
+`import-latest` are both current with no unpushed commits.
 
 Full history of *why* each change was made lives in git log / commit
 messages, not here — this file only tracks current topology and open items.

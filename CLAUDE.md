@@ -53,6 +53,12 @@ yet on prod:
   order still sitting in one of those two states failed outright with
   "Invalid status", even though status wasn't actually changing. Now only
   sends `status` when the admin changed it via the dropdown.
+- **Second follow-up, found in the same testing pass**: adding the Delivery
+  ETA/In Stock/Comments columns squeezed every column's available width,
+  and the Status/Type/In Stock badge `<td>` cells had no `whitespace-nowrap`
+  (unlike the date columns, which already did) — "Payment Failed" wrapped
+  onto two lines inside its pill instead of the row just growing wider
+  within the table's existing horizontal scroll.
 
 Deployed and verified on non-prod (schema applied, worker deployed,
 frontend built and published, bundle hash confirmed against the live

@@ -1350,12 +1350,12 @@ const AdminDashboard = () => {
                                                             ) : <span className="text-gray-400">—</span>}
                                                         </td>
                                                         <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700 font-semibold text-primary">₹{amount}</td>
-                                                        <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700">
+                                                        <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700 whitespace-nowrap">
                                                             <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${isCOD ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'}`}>
                                                                 {isCOD ? 'COD' : 'Prepaid'}
                                                             </span>
                                                         </td>
-                                                        <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700">
+                                                        <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700 whitespace-nowrap">
                                                             <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${
                                                                 status === 'New' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' :
                                                                 status === 'Processing' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' :
@@ -1374,7 +1374,7 @@ const AdminDashboard = () => {
                                                         <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700 whitespace-nowrap">
                                                             {formatDate(order.DeliveryEta) || <span className="text-gray-400">—</span>}
                                                         </td>
-                                                        <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700">
+                                                        <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700 whitespace-nowrap">
                                                             {order.InStock === null || order.InStock === undefined ? (
                                                                 <span className="text-gray-400">—</span>
                                                             ) : (

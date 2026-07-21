@@ -29,16 +29,17 @@ const addressLines = (address) =>
 
 const filename = (ext) => `shipping-labels-${new Date().toISOString().slice(0, 10)}.${ext}`;
 
-export const exportLabelsAsPdf = async (orders) => {
-    const { default: jsPDF } = await import('jspdf');
+export const exportLabelsAsPdf = async(orders) => {
+    const { default: jsPDF } = await
+    import ('jspdf');
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-    const pageWidth  = 210;
+    const pageWidth = 210;
     const pageHeight = 297;
-    const margin     = 10;
-    const gap        = 10;
-    const colWidth   = (pageWidth - margin * 2 - gap) / 2;
+    const margin = 10;
+    const gap = 10;
+    const colWidth = (pageWidth - margin * 2 - gap) / 2;
     const lineHeight = 4.2;
-    const fontSize   = 9;
+    const fontSize = 9;
 
     doc.setFontSize(fontSize);
     let y = margin;
@@ -51,11 +52,10 @@ export const exportLabelsAsPdf = async (orders) => {
         // only wraps by width, so it could keep "Pincode: …" glued onto the
         // previous line whenever there was room left on it.
         const addrParts = addressLines(order.Address);
-        const toAddress = addrParts.length
-            ? addrParts.flatMap(part => doc.splitTextToSize(part, colWidth))
-            : ['—'];
-        const toLines   = ['TO:', order.Name || 'N/A', ...toAddress, `Order ID: LT-${order.id}`, `Tel: ${order.Mobile || 'N/A'}`];
-        const rowLines  = Math.max(fromLines.length, toLines.length);
+        const toAddress = addrParts.length ?
+            addrParts.flatMap(part => doc.splitTextToSize(part, colWidth)) : ['—'];
+        const toLines = ['TO:', order.Name || 'N/A', ...toAddress, `Order ID: LT-${order.id}`, `Tel: ${order.Mobile || 'N/A'}`];
+        const rowLines = Math.max(fromLines.length, toLines.length);
         const rowHeight = rowLines * lineHeight + 3;
 
         if (y + rowHeight > pageHeight - margin) {
@@ -84,9 +84,10 @@ export const exportLabelsAsPdf = async (orders) => {
     doc.save(filename('pdf'));
 };
 
-export const exportLabelsAsWord = async (orders) => {
-    const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle } = await import('docx');
-    const noBorder     = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+export const exportLabelsAsWord = async(orders) => {
+    const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle } = await
+    import ('docx');
+    const noBorder = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
     const bottomBorder = { style: BorderStyle.SINGLE, size: 4, color: 'AAAAAA' };
     // Row divider is drawn via each cell's own bottom border — docx has no
     // per-row border option, only per-cell.
@@ -118,8 +119,9 @@ export const exportLabelsAsWord = async (orders) => {
                 ...addressLines(order.Address).map(line =>
                     new Paragraph({ spacing: { after: 20 }, children: [new TextRun({ text: line, size: 18 })] })
                 ),
-                new Paragraph({ spacing: { after: 20 }, children: [new TextRun({ text: `Order ID: LT-${order.id}`, size: 18 })] }),
+
                 new Paragraph({ children: [new TextRun({ text: `Tel: ${order.Mobile || 'N/A'}`, size: 18 })] }),
+                new Paragraph({ spacing: { after: 20 }, children: [new TextRun({ text: `Order ID: LT-${order.id}`, size: 18 })] }),
             ],
         });
 
@@ -135,9 +137,9 @@ export const exportLabelsAsWord = async (orders) => {
     });
 
     const blob = await Packer.toBlob(doc);
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
     a.download = filename('docx');
     a.click();
     URL.revokeObjectURL(url);

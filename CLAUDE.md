@@ -45,6 +45,14 @@ yet on prod:
   whose idToken didn't silently restore (expired session, blocked
   third-party cookies) saw the My Orders page stuck loading forever with no
   way to recover except logging out and back in from Profile.
+- **Follow-up fix, found immediately while testing the comments field**:
+  `saveOrderShipping` always re-sent the order's *current* status on every
+  save, even a comments-only edit. The backend's status validator only
+  accepts the 6 admin-settable values — not `Pending Payment`/
+  `Payment Failed` — so saving anything (including just a comment) on an
+  order still sitting in one of those two states failed outright with
+  "Invalid status", even though status wasn't actually changing. Now only
+  sends `status` when the admin changed it via the dropdown.
 
 Deployed and verified on non-prod (schema applied, worker deployed,
 frontend built and published, bundle hash confirmed against the live

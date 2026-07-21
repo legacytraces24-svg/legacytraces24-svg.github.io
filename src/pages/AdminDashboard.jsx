@@ -573,9 +573,19 @@ const AdminDashboard = () => {
         setSavingOrderId(orderId);
         try {
             const toTs = (dateStr) => dateStr ? `${dateStr} 00:00:00` : null;
+            // Only send status when the admin actually changed it via the
+            // dropdown — otherwise this always re-sent the order's current
+            // status on every save (even a comments-only edit), and the
+            // backend's status validator only accepts the 6 admin-settable
+            // values, not 'Pending Payment'/'Payment Failed'. Any edit on an
+            // order still sitting in one of those two states — exactly the
+            // ones an admin is likely annotating — failed outright with
+            // "Invalid status", even though status wasn't being changed at all.
+            const currentOrder = orders.find(o => o.id === orderId);
+            const statusChanged = currentOrder && e.status !== (currentOrder.OrderStatus || 'New');
             const res = await updateOrderStatus(
                 user.idToken, orderId,
-                e.status || null,
+                statusChanged ? e.status : null,
                 e.trackingId || null,
                 e.shippingCompany || null,
                 toTs(e.shippedAt),

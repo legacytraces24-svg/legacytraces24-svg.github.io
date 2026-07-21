@@ -8,19 +8,54 @@ or `.env.production` — the two environments look identical at a glance
 (same Worker name, same D1 name) and are only distinguished by *which
 account/remote is currently active*.
 
-## ✅ Deployment status
+## ⚠ Deployment status
 
-As of 2026-07-18, **prod and non-prod are in sync** — everything through the
-admin "Verify Status" feature (Cashfree webhook CORS fix, payments
-soft-delete + active retry verification, `USER_DROPPED` handling, duplicate
-admin-order fix, stock-based delivery ETA + real stock decrementing,
-stale-cart reconciliation at checkout, the `markOrderPaid` atomic race fix,
-mobile redirect-payment verification, WhatsApp date formatting, the admin
-orders Refresh button + column-search cursor-focus fix, `created_at` sort,
-the per-order `in_stock` boolean + working-day ETA calculation, and the
-`adminVerifyOrdersPayment` bulk payment re-check) is deployed and verified
-on **both** `origin` (prod) and `neworg` (non-prod). `main` and
-`import-latest` are both current with no unpushed commits.
+As of 2026-07-21, non-prod has everything through the admin "Verify Status"
+feature (Cashfree webhook CORS fix, payments soft-delete + active retry
+verification, `USER_DROPPED` handling, duplicate admin-order fix,
+stock-based delivery ETA + real stock decrementing, stale-cart
+reconciliation at checkout, the `markOrderPaid` atomic race fix, mobile
+redirect-payment verification, WhatsApp date formatting, the admin orders
+Refresh button + column-search cursor-focus fix, `created_at` sort, the
+per-order `in_stock` boolean + working-day ETA calculation, and the
+`adminVerifyOrdersPayment` bulk payment re-check), plus one more round not
+yet on prod:
+
+**Not yet on prod — awaiting go-ahead:**
+- **Admin date-filter timezone bug** (production-reported: "today's orders
+  don't show in the filter"). Every date-filter comparison (Created/
+  Shipped/Delivered/ETA), the Shipped-date default, and the tracking-form
+  date inputs sliced the raw UTC `created_at`/etc. string instead of
+  converting to the admin's local calendar date. An order placed in the
+  early hours IST (before ~5:30am, while the UTC calendar day is still
+  "yesterday") was silently excluded from a "Created = today" filter, even
+  though the on-screen date display (`formatDate`, already timezone-correct)
+  showed it as today. New shared `toLocalDateOnly` helper fixes every one of
+  these comparisons. The "exported labels are missing filtered records"
+  report is almost certainly the same bug downstream — Export Labels already
+  receives the same (previously wrong) filtered array.
+- Shipping label exports (PDF/Word) now print `Order ID: LT-{id}` under the
+  recipient's pincode line.
+- New `orders.comments` column (`schema_order_comments.sql`) — an
+  admin-only internal note (never shown to the customer, no WhatsApp
+  impact), editable in the order detail panel, visible as a filterable
+  table column.
+- `Orders.jsx` (customer-facing) gets the same session-timeout Google
+  Sign-In fallback `AdminDashboard.jsx` already had — previously a customer
+  whose idToken didn't silently restore (expired session, blocked
+  third-party cookies) saw the My Orders page stuck loading forever with no
+  way to recover except logging out and back in from Profile.
+
+Deployed and verified on non-prod (schema applied, worker deployed,
+frontend built and published, bundle hash confirmed against the live
+`gh-pages` branch). Deploy to prod with:
+```bash
+cd Backend
+npx wrangler login    # sign in as legacytraces24@gmail.com
+npx wrangler d1 execute legacy-traces-db --remote --file=./schema_order_comments.sql
+npx wrangler deploy   # no --env flag
+```
+then `git push origin main && npm run build && npm run deploy`.
 
 **Bug fixed the same day, in both environments:** `markOrderPaid`'s atomic
 claim (`Backend/backend.js`) only matched `order_status = 'Pending Payment'`,

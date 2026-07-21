@@ -28,12 +28,39 @@ const formatDate = (ts) => {
     return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
-// D1 timestamps start with 'YYYY-MM-DD' — slicing gives the value an
-// <input type="date"> expects, regardless of separator/time portion.
-const toDateInputValue = (ts) => (ts ? ts.slice(0, 10) : '');
+// UTC D1 timestamp → the admin's LOCAL calendar date as 'YYYY-MM-DD', for
+// comparing against <input type="date"> values (always local, never UTC).
+// An order placed at, say, 1am IST is still "yesterday" in UTC — slicing the
+// raw string's first 10 characters (the previous approach) compared the
+// wrong day and made a "Created = today" filter silently miss orders placed
+// in the early hours of the admin's local day.
+const toLocalDateOnly = (ts) => {
+    if (!ts) return '';
+    const d = new Date(ts.includes('T') ? ts : ts.replace(' ', 'T') + 'Z');
+    if (isNaN(d)) return '';
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+};
 
-// Today as an <input type="date"> value.
-const todayDateInputValue = () => new Date().toISOString().slice(0, 10);
+// D1 timestamps are UTC — convert to the admin's local calendar date (not a
+// raw slice of the UTC string) before handing to an <input type="date">,
+// same reasoning as toLocalDateOnly above: a timestamp near local midnight
+// can fall on a different UTC day than the admin actually experienced.
+const toDateInputValue = (ts) => toLocalDateOnly(ts);
+
+// Today, in the admin's local timezone, as an <input type="date"> value —
+// NOT new Date().toISOString().slice(0,10), which is today in UTC and can
+// be a day behind for any admin ahead of UTC (e.g. IST) between local
+// midnight and UTC midnight.
+const todayDateInputValue = () => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+};
 
 // Adds `days` working days (Mon–Fri) to a 'YYYY-MM-DD' date string — mirrors
 // the backend's own projection (updateOrderStatus in backend.js) so the admin
@@ -74,6 +101,7 @@ const FILTER_FIELDS = {
     DeliveredAt:     { label: 'Delivered Date',    type: 'date',   get: o => o.DeliveredAt || '' },
     DeliveryEta:     { label: 'Delivery ETA',      type: 'date',   get: o => o.DeliveryEta || '' },
     InStock:         { label: 'In Stock',          type: 'select', options: ['True', 'False'], get: o => o.InStock === null || o.InStock === undefined ? '' : (Number(o.InStock) === 1 ? 'True' : 'False') },
+    Comments:        { label: 'Comments',          type: 'text',   get: o => o.Comments || '' },
 };
 
 const OPERATORS_BY_TYPE = {
@@ -90,9 +118,10 @@ const evalCondition = (order, { field, operator, value, value2 }) => {
     if (!def) return true;
 
     if (def.type === 'date') {
-        // D1 timestamps start with 'YYYY-MM-DD', so plain string comparison
-        // against <input type="date"> values is already a correct date compare.
-        const raw = (def.get(order) || '').slice(0, 10);
+        // Converted to the admin's local calendar date (not a raw slice of the
+        // UTC string) before comparing against <input type="date"> values,
+        // which are always local — see toLocalDateOnly's comment above.
+        const raw = toLocalDateOnly(def.get(order));
         if (operator === 'is empty')     return raw === '';
         if (operator === 'is not empty') return raw !== '';
         if (!raw) return false;
@@ -381,6 +410,7 @@ const AdminDashboard = () => {
                     status:          o.OrderStatus || 'New',
                     shippedAt:       toDateInputValue(o.ShippedAt),
                     deliveredAt:     toDateInputValue(o.DeliveredAt),
+                    comments:        o.Comments || '',
                 };
             });
             setOrderEditState(init);
@@ -550,6 +580,7 @@ const AdminDashboard = () => {
                 e.shippingCompany || null,
                 toTs(e.shippedAt),
                 toTs(e.deliveredAt),
+                e.comments ?? null,
             );
             if (res?.error) {
                 alert(res.error);
@@ -566,6 +597,7 @@ const AdminDashboard = () => {
                         ShippingCompany: fresh?.ShippingCompany ?? e.shippingCompany,
                         ShippedAt:       fresh?.ShippedAt       ?? o.ShippedAt,
                         DeliveredAt:     fresh?.DeliveredAt     ?? o.DeliveredAt,
+                        Comments:        fresh?.Comments        ?? e.comments,
                     }
                     : o));
 
@@ -583,6 +615,7 @@ const AdminDashboard = () => {
                         shippingCompany: fresh?.ShippingCompany ?? prev[orderId]?.shippingCompany,
                         shippedAt:       fresh?.ShippedAt   ? toDateInputValue(fresh.ShippedAt)   : prev[orderId]?.shippedAt,
                         deliveredAt:     fresh?.DeliveredAt ? toDateInputValue(fresh.DeliveredAt) : prev[orderId]?.deliveredAt,
+                        comments:        fresh?.Comments    ?? prev[orderId]?.comments,
                     },
                 }));
 
@@ -1249,6 +1282,7 @@ const AdminDashboard = () => {
                                                 <ColumnHeader {...columnHeaderProps} sortKey="created" filterField="CreatedAt">Created</ColumnHeader>
                                                 <ColumnHeader {...columnHeaderProps} filterField="DeliveryEta">Delivery ETA</ColumnHeader>
                                                 <ColumnHeader {...columnHeaderProps} filterField="InStock">In Stock</ColumnHeader>
+                                                <ColumnHeader {...columnHeaderProps} filterField="Comments">Comments</ColumnHeader>
                                                 <th className="py-1.5 px-2.5 font-medium border border-gray-200 dark:border-gray-700">Details</th>
                                             </tr>
                                             {anyColumnSearchOpen && (
@@ -1262,6 +1296,7 @@ const AdminDashboard = () => {
                                                     <ColumnFilterCell {...columnFilterProps} field="CreatedAt" />
                                                     <ColumnFilterCell {...columnFilterProps} field="DeliveryEta" />
                                                     <ColumnFilterCell {...columnFilterProps} field="InStock" />
+                                                    <ColumnFilterCell {...columnFilterProps} field="Comments" />
                                                     <td className="border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30" />
                                                 </tr>
                                             )}
@@ -1274,7 +1309,7 @@ const AdminDashboard = () => {
                                                 const isCOD    = order.COD === 'Yes';
                                                 const status   = order.OrderStatus || 'New';
                                                 const isOpen   = expandedOrderId === id;
-                                                const edit     = orderEditState[id] || { trackingId: '', shippingCompany: '', status: 'New', shippedAt: '', deliveredAt: '' };
+                                                const edit     = orderEditState[id] || { trackingId: '', shippingCompany: '', status: 'New', shippedAt: '', deliveredAt: '', comments: '' };
                                                 const needsShippingFields = edit.status === 'Shipped' && (!edit.trackingId?.trim() || !edit.shippingCompany?.trim());
                                                 return (
                                                 <React.Fragment key={id}>
@@ -1342,6 +1377,11 @@ const AdminDashboard = () => {
                                                                 </span>
                                                             )}
                                                         </td>
+                                                        <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700 max-w-[160px]">
+                                                            {order.Comments ? (
+                                                                <span className="text-xs truncate block" title={order.Comments}>{order.Comments}</span>
+                                                            ) : <span className="text-gray-400">—</span>}
+                                                        </td>
                                                         <td className="py-1.5 px-2.5 border border-gray-200 dark:border-gray-700">
                                                             <button
                                                                 onClick={() => setExpandedOrderId(isOpen ? null : id)}
@@ -1354,7 +1394,7 @@ const AdminDashboard = () => {
                                                     </tr>
                                                     {isOpen && (
                                                         <tr className="bg-gray-50 dark:bg-gray-900/40">
-                                                            <td colSpan="10" className="p-5 border border-gray-200 dark:border-gray-700">
+                                                            <td colSpan="11" className="p-5 border border-gray-200 dark:border-gray-700">
                                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                                                                     <div>
                                                                         <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Shipping Address</p>
@@ -1415,6 +1455,16 @@ const AdminDashboard = () => {
                                                                                 />
                                                                             </div>
                                                                         </div>
+                                                                        <div>
+                                                                            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Comments (internal only)</label>
+                                                                            <textarea
+                                                                                value={edit.comments}
+                                                                                onChange={ev => handleOrderEdit(id, 'comments', ev.target.value)}
+                                                                                placeholder="Internal note — never shown to the customer"
+                                                                                rows={2}
+                                                                                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+                                                                            />
+                                                                        </div>
                                                                         {needsShippingFields && (
                                                                             <p className="text-xs text-red-500 font-medium">
                                                                                 Tracking ID and Shipping Company are required to mark this order as Shipped.
@@ -1436,7 +1486,7 @@ const AdminDashboard = () => {
                                                 );
                                             }) : (
                                                 <tr>
-                                                    <td colSpan="10" className="p-8 text-center text-gray-500 border border-gray-200 dark:border-gray-700">
+                                                    <td colSpan="11" className="p-8 text-center text-gray-500 border border-gray-200 dark:border-gray-700">
                                                         {orders.length === 0 ? 'No orders yet.' : 'No orders match your filters.'}
                                                     </td>
                                                 </tr>

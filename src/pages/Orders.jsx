@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useUser } from '../context/UserContext';
-import { fetchMyOrders, getMyCustomOrders, postComment, checkPaymentStatus } from '../api/api';
+import { fetchMyOrders, getMyCustomOrders, postComment, checkPaymentStatus, saveCustomer } from '../api/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link, useNavigate, useLocation, useSearchParams, useParams } from 'react-router-dom';
+import { GoogleLogin } from '@react-oauth/google';
+import { jwtDecode } from 'jwt-decode';
 import {
     Package, ChevronRight, ChevronLeft, Star,
     ShieldCheck, MapPin, User,
@@ -369,12 +371,21 @@ const FeedbackForm = ({ order, onSubmitted }) => {
 };
 
 const Orders = () => {
-    const { user } = useUser();
+    const { user, setUser } = useUser();
     const navigate = useNavigate();
     const location = useLocation();
     const [searchParams] = useSearchParams();
     const { orderId } = useParams(); // present on /orders/:orderId — deep link to one order's details
     const orderPlaced = !!location.state?.orderPlaced;
+
+    // Falls back to a visible Google Sign-In button if the silent One-Tap
+    // re-auth (SessionGate, App.jsx) hasn't restored idToken within a few
+    // seconds — mirrors AdminDashboard's identical guard. Without this, a
+    // customer whose session expired (or whose browser blocks the silent
+    // One-Tap) sees this page stuck loading forever with no way to recover
+    // short of logging out and back in from Profile.
+    const [oneTapTimedOut, setOneTapTimedOut] = useState(false);
+    const [reAuthError,    setReAuthError]    = useState('');
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedOrder, setSelectedOrder] = useState(null);
@@ -395,6 +406,33 @@ const Orders = () => {
     // the orders-fetch effect (keyed only on idToken, which doesn't change
     // here) re-runs and picks up the now-confirmed status.
     const [refreshKey, setRefreshKey] = useState(0);
+
+    // Waiting-for-One-Tap is only ever "stuck" once — reset the timer if we
+    // leave that state (idToken arrives, or user disappears) so a later
+    // logout/login doesn't inherit a stale timeout. Mirrors AdminDashboard.
+    useEffect(() => {
+        if (!(user?.email && !user?.idToken)) {
+            setOneTapTimedOut(false);
+            return;
+        }
+        const timer = setTimeout(() => setOneTapTimedOut(true), 4000);
+        return () => clearTimeout(timer);
+    }, [user?.email, user?.idToken]);
+
+    // Manual fallback for the hidden SessionGate One-Tap — a real, user-initiated
+    // Google sign-in always succeeds even when silent re-auth is blocked
+    // (third-party cookies disabled, One-Tap cooldown after a prior dismissal, etc).
+    const handleManualSignIn = async (credentialResponse) => {
+        try {
+            const idToken = credentialResponse.credential;
+            const decoded = jwtDecode(idToken);
+            await saveCustomer({ idToken, email: decoded.email, name: decoded.name });
+            setUser({ idToken, email: decoded.email, name: decoded.name });
+            setReAuthError('');
+        } catch {
+            setReAuthError('Sign-in failed. Please try again.');
+        }
+    };
 
     // Cashfree redirect handler — Cashfree appends ?order_status=PAID|CANCELLED|ACTIVE
     // to return_url after redirect-based payments (net banking, some UPI apps).
@@ -500,6 +538,36 @@ const Orders = () => {
         localStorage.setItem('submittedFeedback', JSON.stringify(updated));
         setFeedbackJustSubmitted(true);
     };
+
+    // Session is being restored (name/email known from before, idToken not
+    // yet back) — wait briefly for SessionGate's silent One-Tap, then offer a
+    // real sign-in instead of leaving this page stuck loading indefinitely.
+    if (user?.email && !user?.idToken) {
+        if (!oneTapTimedOut) {
+            return (
+                <div className="min-h-[60vh] flex items-center justify-center">
+                    <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-primary" />
+                </div>
+            );
+        }
+        return (
+            <div className="container mx-auto px-4 py-20 min-h-[60vh] flex flex-col items-center justify-center gap-4 text-center">
+                <div className="w-16 h-16 bg-primary/20 text-primary rounded-full flex items-center justify-center mx-auto mb-2">
+                    <ShieldCheck size={32} />
+                </div>
+                <h1 className="text-3xl font-bold font-heading mb-1">Session Expired</h1>
+                <p className="text-gray-500 dark:text-gray-400 mb-2">Session restore is taking longer than expected. Please sign in again.</p>
+                <GoogleLogin
+                    onSuccess={handleManualSignIn}
+                    onError={() => setReAuthError('Google Sign-In failed.')}
+                    theme="filled_black"
+                    shape="pill"
+                    size="large"
+                />
+                {reAuthError && <p className="text-red-500 text-sm">{reAuthError}</p>}
+            </div>
+        );
+    }
 
     if (!user) {
         return (

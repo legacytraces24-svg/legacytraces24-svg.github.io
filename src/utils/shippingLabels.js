@@ -54,7 +54,7 @@ export const exportLabelsAsPdf = async (orders) => {
         const toAddress = addrParts.length
             ? addrParts.flatMap(part => doc.splitTextToSize(part, colWidth))
             : ['—'];
-        const toLines   = ['TO:', order.Name || 'N/A', ...toAddress, `Tel: ${order.Mobile || 'N/A'}`];
+        const toLines   = ['TO:', order.Name || 'N/A', ...toAddress, `Order ID: LT-${order.id}`, `Tel: ${order.Mobile || 'N/A'}`];
         const rowLines  = Math.max(fromLines.length, toLines.length);
         const rowHeight = rowLines * lineHeight + 3;
 
@@ -118,6 +118,7 @@ export const exportLabelsAsWord = async (orders) => {
                 ...addressLines(order.Address).map(line =>
                     new Paragraph({ spacing: { after: 20 }, children: [new TextRun({ text: line, size: 18 })] })
                 ),
+                new Paragraph({ spacing: { after: 20 }, children: [new TextRun({ text: `Order ID: LT-${order.id}`, size: 18 })] }),
                 new Paragraph({ children: [new TextRun({ text: `Tel: ${order.Mobile || 'N/A'}`, size: 18 })] }),
             ],
         });

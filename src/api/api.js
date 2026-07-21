@@ -161,9 +161,9 @@ export const fetchAdminOrders = async (idToken) => {
     return data.orders || [];
 };
 
-// Admin only — update order status, tracking ID, shipping company, and/or dates.
-export const updateOrderStatus = async (idToken, orderId, status, trackingId, shippingCompany, shippedAt, deliveredAt) =>
-    post('updateStatus', { idToken, orderId, status, trackingId, shippingCompany, shippedAt, deliveredAt });
+// Admin only — update order status, tracking ID, shipping company, dates, and/or internal comments.
+export const updateOrderStatus = async (idToken, orderId, status, trackingId, shippingCompany, shippedAt, deliveredAt, comments) =>
+    post('updateStatus', { idToken, orderId, status, trackingId, shippingCompany, shippedAt, deliveredAt, comments });
 
 // Admin only — re-checks each given order directly against Cashfree and flips
 // it to paid if Cashfree confirms PAID; orders not in Pending Payment/Payment
